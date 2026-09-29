@@ -18,9 +18,9 @@ import matplotlib.pyplot as plt
 import plotext as pltterm
 import datetime
 import os
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 
-## -- INPUT FUNCTIONS ---
+## -- INPUT FUNCTIONS AND DATA---
 
 def XOR_no_noise(A, B, len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, gap=config.GAP):
     """ Function that generates 3 input signals (Neuron A, Neuron B and Readout) without noise
@@ -83,8 +83,46 @@ def generate_new_random_data():
     """
     return DataLoader(classes.TemporalXORDataset(), batch_size=config.BATCH_SIZE, shuffle=False)
 
+def generate_train_test_dataset():
+    """
+    Function that generates the Temporal XOR dataset and splits it into a train
+    and a test set, using fixed seeds for reproducibility.
 
-## --- NN functions ---
+    Returns:
+        train_dataset (torch.utils.data.Subset): The subset used for training.
+        test_dataset (torch.utils.data.Subset): The subset used for testing.
+    """
+    torch.manual_seed(142)                                                  # Seed setup
+    dataset = classes.TemporalXORDataset()                                  # Dataset allocation
+    n_train = int(config.TRAIN_SPLIT * len(dataset))                        # length of train dataset
+    n_test = len(dataset) - n_train                                         # length of test dataset
+    train_dataset, test_dataset = random_split(                                                       
+        dataset,
+        [n_train, n_test],
+        generator = torch.Generator().manual_seed(42)
+    )
+
+    print("Train dataset e Test dataset successfully generated.")
+    print(f"The length of the train dataset is: {len(train_dataset)}")
+    print(f"The length of the test dataset is: {len(test_dataset)}\n")
+    return train_dataset, test_dataset
+
+def generate_train_test_dataloader(train_dataset, test_dataset):
+    """ Generate train and test dataloaders from datasets
+
+    Args:
+        train_dataset (torch.utils.data.Subset): The subset used for training.
+        test_dataset (torch.utils.data.Subset): The subset used for testing.
+    
+    Returns:
+        train_dataloader (torch.utils.data.DataLoader): The DataLoader for the train set (shuffled).
+        test_dataloader (torch.utils.data.DataLoader): The DataLoader for the test set (not shuffled).
+    """
+    train_dataloader = DataLoader(train_dataset, batch_size=config.BATCH_SIZE, shuffle = True)
+    test_dataloader = DataLoader(test_dataset, batch_size=config.BATCH_SIZE, shuffle=False)
+    return train_dataloader, test_dataloader
+
+## --- TRAIN AND TEST FUNCTIONS ---
 
 def train(model, train_loader, optimizer, loss_fn):
     """ Executes the training loop for the Spiking Neural Network over one epoch.
@@ -171,51 +209,47 @@ def test(model, test_loader, loss_fn):
     acc_test = (total_correct / total_samples) * 100
     return avg_loss_test, acc_test
 
-def store_model(model):
-    """Saves the PyTorch model weights with a formatted timestamp.
+def train_and_test(model, train_loader, test_loader, optimizer, loss_fn):
+    """
+    Executes the complete training and evaluation pipeline for the Temporal XOR SNN.
 
-    Checks if the 'models' directory exists, creates it if necessary, 
-    and saves the model's state dictionary using the format: 
-    YYYYMMDD-E{EPOCHS}-LR{LR}.pth.
+    This function iterates through the number of epochs defined in the configuration,
+    alternating between training the model on the rate-coded training set and evaluating 
+    it on the test set. It implements a best-model selection strategy by monitoring the 
+    validation accuracy, automatically saving the model weights to disk whenever a new 
+    performance peak is reached to prevent storing overfitted parameters.
 
     Args:
-        model (torch.nn.Module): The trained neural network model.
+        model (torch.nn.Module): The Spiking Neural Network to be trained and evaluated.
+        train_loader (torch.utils.data.DataLoader): DataLoader providing the rate-coded training samples.
+        test_loader (torch.utils.data.DataLoader): DataLoader providing the rate-coded testing samples.
+        optimizer (torch.optim.Optimizer): The optimization algorithm used to update the network's weights.
+        loss_fn (callable): The criterion used to compute the error gradient.
 
     Returns:
-        None
+        None. The model is modified in-place during optimization, and the optimal weights 
+        are saved directly to the disk via the `store_model()` function.
     """
-    os.makedirs("models", exist_ok=True)                                                    # create model folder if not present
-    current_date = datetime.datetime.now().strftime("%Y%m%d")                               # get the current date
-    modelname = f"models/{current_date}-E{config.EPOCHS}-LR{config.LEARNING_RATE}.pth"      # decide the model name
-    torch.save(model.state_dict(), modelname)
-    print("model correctly saved in 'models' folder\n")
+    print("\nTraining underway ...\n")
+    loss_hist_train, acc_hist_train = [], []
+    loss_hist_test, acc_hist_test = [], []
 
-def load_model():
-    """ 
-    Function that proceeds to create the string and load the corresponding 
-    model based on the parameters stored in "config.py" before the compiling
+    best_accuracy_so_far  = 0.0
+    for _ in range(config.EPOCHS):
+        avg_loss_train, acc_train = train(model, train_loader, optimizer, loss_fn)
+        avg_loss_test, acc_test = test(model, test_loader, loss_fn)
+        loss_hist_train.append(avg_loss_train), acc_hist_train.append(acc_train)
+        loss_hist_test.append(avg_loss_test), acc_hist_test.append(acc_test)
 
-    Args:
-        None
+        # if we get a good accuracy, store the model (this avoid to save the model only at the end of the last epoch
+        # in order to avoid saving parameters if the training is making the model worse)
+        if acc_test > best_accuracy_so_far:
+            best_accuracy_so_far = acc_test
+            store_model(model)
 
-    Returns:
-        model (torch.nn.Module): The neural network model trained in a previous session,
-                                 or None if not found
-    """
-
-    check_string = f"E{config.EPOCHS}-LR{config.LEARNING_RATE}"                 # create the model we have to look for
-    folder_name = "models"                                                       # directory
-    if os.path.exists(folder_name):
-        for filename in os.listdir(folder_name):
-            if filename.endswith(".pth") and check_string in filename:          # ensure to choose correct name and that is model
-                file_path = os.path.join(folder_name, filename)                 # creation of complete path
-                model = classes.XORSNN()
-                weights = torch.load(file_path)                                 # load model
-                model.load_state_dict(weights)
-                print(f"Model correctly loaded from: {file_path}")
-                return model
-    print(f"No model found with the parameters: {check_string}")                # Handle the case with no model present with that name
-    return None
+    print(f"Training completed on {config.EPOCHS} epochs")
+    print(f"The best accuracy we reached in training is: {max(acc_hist_train)}%")
+    print(f"The best accuracy we reached in testing is: {max(acc_hist_test)}%\n") 
 
 def check_trained():
     """ 
@@ -265,7 +299,60 @@ def test_model_robustness(model, loss_fn):
     print(f"    -> Best accuracy: {max(acc_list):.2f}%")
     print(f"    -> Average accuracy: {sum(acc_list)/len(acc_list):.2f}%")
 
-## --- Plotting functions ---
+## --- SAVE FUNCTIONS ---
+
+def store_model(model):
+    """Saves the PyTorch model weights with a formatted timestamp.
+
+    Checks if the 'models' directory exists, creates it if necessary, 
+    and saves the model's state dictionary using the format: 
+    YYYYMMDD-E{EPOCHS}-LR{LR}.pth.
+
+    Args:
+        model (torch.nn.Module): The trained neural network model.
+
+    Returns:
+        None
+    """
+    os.makedirs("models", exist_ok=True)                                                    # create model folder if not present
+    current_date = datetime.datetime.now().strftime("%Y%m%d")                               # get the current date
+    modelname = f"models/{current_date}-E{config.EPOCHS}-LR{config.LEARNING_RATE}.pth"      # decide the model name
+    torch.save(model.state_dict(), modelname)
+
+def load_model():
+    """ 
+    Function that proceeds to create the string and load the corresponding 
+    model based on the parameters stored in "config.py" before the compiling
+
+    Args:
+        None
+
+    Returns:
+        model (torch.nn.Module): The neural network model trained in a previous session,
+                                 or None if not found
+    """
+
+    check_string = f"E{config.EPOCHS}-LR{config.LEARNING_RATE}"                 # create the model we have to look for
+    folder_name = "models"                                                       # directory
+    if os.path.exists(folder_name):
+        for filename in os.listdir(folder_name):
+            if filename.endswith(".pth") and check_string in filename:          # ensure to choose correct name and that is model
+                file_path = os.path.join(folder_name, filename)                 # creation of complete path
+                model = classes.XORSNN()
+                weights = torch.load(file_path)                                 # load model
+                model.load_state_dict(weights)
+                print(f"Model correctly loaded from: {file_path}")
+                return model
+    print(f"No model found with the parameters: {check_string}")                # Handle the case with no model present with that name
+    return None
+
+## --- Plotting and printing functions ---
+def print_working_device():
+    print(
+    "\n============ DEVICE ================\n"
+    f"==      We are working on {config.DEVICE}     ==\n"
+    "====================================\n"
+    )
 
 def plot_inputs(Data: torch.Tensor):
     """ Plots the 3 inputs showing each spike

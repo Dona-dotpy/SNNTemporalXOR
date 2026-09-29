@@ -13,6 +13,9 @@ TOT_TIMESTEPS = SIGN_A + SIGN_B + GAP + READOUT
 # Dataset
 BATCH_SIZE = 32
 
+# Neurons
+BETA = 0.95
+
 # Neural network
 NUM_SAMPLES = 1000
 TRAIN_SPLIT = 0.8

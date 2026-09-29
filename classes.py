@@ -87,9 +87,9 @@ class XORSNN(nn.Module):
 
         self.net = nn.Sequential(
             nn.Linear(input_layer, hidden_layer),
-            snn.Leaky(beta=0.9, init_hidden = True),                           # init_hidden = True stores the mebrane potential between different calls
+            snn.Leaky(beta=config.BETA, init_hidden = True),                           # init_hidden = True stores the mebrane potential between different calls
             nn.Linear(hidden_layer, output_layer),
-            snn.Leaky(beta=0.9, init_hidden = True, output = True)             # output = True gives back the membrane potential, too
+            snn.Leaky(beta=config.BETA, init_hidden = True, output = True)             # output = True gives back the membrane potential, too
         )
 
     def forward(self, x):
