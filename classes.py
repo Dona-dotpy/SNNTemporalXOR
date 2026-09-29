@@ -109,5 +109,8 @@ class XORSNN(nn.Module):
             spk_out.append(spk)
             mem_out.append(mem)
 
+        if self.print_raster_plot == True:
+            functions.raster_plot(spk_out)
+
         # return the list converted into a tensor with the same input dimension
         return torch.stack(spk_out, dim=2), torch.stack(mem_out, dim=2)

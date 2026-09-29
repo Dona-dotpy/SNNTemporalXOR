@@ -1,18 +1,17 @@
 # Dataset generation of to train the net for temporal XOR
 
 ## --- Libraries ---
+from tkinter import N
+
 import classes, functions, config
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, random_split
-import plotext as plt
-
 
 ## --- MAIN CODE ---
 
 # check of the device
-functions.print_working_device()
+functions.print_parameters()
 
 # Generation of Dataset
 train_dataset, test_dataset = functions.generate_train_test_dataset()
@@ -37,15 +36,28 @@ else:
 
     # Creation of input choice to decide whether we have to train again or not
     while True:
-        choice = input(f"[y/n]  Do you want to train it again?  ").strip().lower()     # get keyboard IN, remove void spaces and make everything lowercase
+        choice = input(f"[y/n]  Do you want to train it again?  ").strip().lower()              # get keyboard IN, remove void spaces and make everything lowercase
         if choice == "y":
             functions.train_and_test(model, train_loader, test_loader, optimizer, loss_fn)
             break
         elif choice == "n":
-            print("Let's load model parameters and test model robustness... ")
-            model = functions.load_model()
+            # Choice regarding which model we want to load
+            print("Are you looking for a specific model?")
+            while True:
+                choice = input("[ y/n]   Say 'y' if you are looking for a specific model, 'n' if I can load deafult model:  ").strip().lower()
+                if choice == "y":
+                    epochs = input("Which is the number of training epochs?  ").strip()
+                    lr = input("Which is the learning rate?  ").strip()
+                    print("Let's load model parameters and test model robustness... ")
+                    model = functions.load_model(epochs, lr)
+                    break
+                elif choice == "n":
+                    print("Let's load default model and the the robustness...")
+                    model = functions.load_model()
+                    break
+                else:
+                    print("Input not recognized. Please insert 'y' for yes and 'n' for no")
             functions.test_model_robustness(model, loss_fn)
             break
         else:
             print("Input not recognized. Please insert 'y' for yes and 'n' for no")
-

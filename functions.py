@@ -15,6 +15,7 @@ import config, classes
 
 import torch
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
 import plotext as pltterm
 import datetime
 import os
@@ -249,7 +250,9 @@ def train_and_test(model, train_loader, test_loader, optimizer, loss_fn):
 
     print(f"Training completed on {config.EPOCHS} epochs")
     print(f"The best accuracy we reached in training is: {max(acc_hist_train)}%")
-    print(f"The best accuracy we reached in testing is: {max(acc_hist_test)}%\n") 
+    print(f"The best accuracy we reached in testing is: {max(acc_hist_test)}%\n")
+    plot_loss_accuracy_in_terminal(loss_hist_train, acc_hist_train, loss_hist_test, acc_hist_test)
+    #plot_loss_accuracy(loss_hist_train) 
 
 def check_trained():
     """ 
@@ -289,15 +292,18 @@ def test_model_robustness(model, loss_fn):
     Returns:
         None
     """
-    acc_list = []
+    loss_list, acc_list = [], []
     for _ in range(config.N_ROBUSTNESS_DATASET):
         current_test_loader = generate_new_random_data()
         loss, acc = test(model, current_test_loader, loss_fn)
         acc_list.append(acc)
+        loss_list.append(loss)
     print(f"The accuracy we reached is:")
     print(f"    -> worst accuracy: {min(acc_list):.2f}%")
     print(f"    -> Best accuracy: {max(acc_list):.2f}%")
-    print(f"    -> Average accuracy: {sum(acc_list)/len(acc_list):.2f}%")
+    print(f"    -> Average accuracy: {sum(acc_list)/len(acc_list):.2f}%\n")
+    print("Let's see the loss and accuracy trends ...\n")
+    plot_loss_accuracy_in_terminal(loss_test=loss_list, acc_test=acc_list)
 
 ## --- SAVE FUNCTIONS ---
 
@@ -319,7 +325,7 @@ def store_model(model):
     modelname = f"models/{current_date}-E{config.EPOCHS}-LR{config.LEARNING_RATE}.pth"      # decide the model name
     torch.save(model.state_dict(), modelname)
 
-def load_model():
+def load_model(epochs = config.EPOCHS, lr = config.LEARNING_RATE):
     """ 
     Function that proceeds to create the string and load the corresponding 
     model based on the parameters stored in "config.py" before the compiling
@@ -332,27 +338,42 @@ def load_model():
                                  or None if not found
     """
 
-    check_string = f"E{config.EPOCHS}-LR{config.LEARNING_RATE}"                 # create the model we have to look for
+    check_string = f"E{epochs}-LR{lr}"                 # create the model we have to look for
     folder_name = "models"                                                       # directory
     if os.path.exists(folder_name):
         for filename in os.listdir(folder_name):
             if filename.endswith(".pth") and check_string in filename:          # ensure to choose correct name and that is model
                 file_path = os.path.join(folder_name, filename)                 # creation of complete path
                 model = classes.XORSNN()
-                weights = torch.load(file_path)                                 # load model
+                weights = torch.load(file_path, map_location = config.DEVICE)   # load weights on the working device
                 model.load_state_dict(weights)
                 print(f"Model correctly loaded from: {file_path}")
-                return model
+                return model.to(config.DEVICE)
     print(f"No model found with the parameters: {check_string}")                # Handle the case with no model present with that name
     return None
 
 ## --- Plotting and printing functions ---
-def print_working_device():
-    print(
-    "\n============ DEVICE ================\n"
-    f"==      We are working on {config.DEVICE}     ==\n"
-    "====================================\n"
-    )
+
+def print_parameters():
+    """ Function to print some relevant parameters inside config.py
+    """
+    print("|                                                                         |")
+    print("\n===========================================================================")
+    print(f"|    Working device:     {config.DEVICE}                                              |")
+    print("|                                                                         |")
+    print("|    Net parameters are the following:                                    |")
+    print(f"|        Structure of the Spiking neural network:    {config.INPUT_LAYER} -> {config.HIDDEN_LAYER} -> {config.OUTPUT_LAYER}         |")
+    print(f"|        Membrane potential decay factor (β):    {config.BETA}                     |")
+    print("|                                                                         |")
+    print("|    Input properties:                                                    |")
+    print(f"|       Time setup (Signal A, Gap, Signal B, Readout):    {config.SIGN_A}->{config.GAP}->{config.SIGN_B}->{config.READOUT}  |")
+    print(f"|       Encoding: 0 -> {int(config.PROB_0 * 10)} spikes, 1 -> {int(config.PROB_1 * 10)} spikes                            |")
+    print("|                                                                         |")
+    print("|    Training properties:                                                 |")
+    print(f"|       Learning rate: {config.LEARNING_RATE:.4f}                                             |")
+    print(f"|       Number of epochs: {config.EPOCHS}                                            |")
+    print("|                                                                         |")
+    print("===========================================================================\n")
 
 def plot_inputs(Data: torch.Tensor):
     """ Plots the 3 inputs showing each spike
@@ -386,7 +407,7 @@ def plot_inputs_in_terminal(Data: torch.Tensor):
 
 
     Args:
-            Data: torch.Tensor([FEATURES, TIMESTEPS])
+        Data: torch.Tensor([FEATURES, TIMESTEPS])
     
     Returns:
         None
@@ -396,19 +417,103 @@ def plot_inputs_in_terminal(Data: torch.Tensor):
 
     channels = ['A', 'B', 'R']          # names of the channels
 
-    plt.clf()                           # fundamental to avoid tracking 2 graphs superimposed if you call the function twice
+    pltterm.clf()                       # pltterm (not plt): avoids superimposing 2 graphs if you call the function twice
     pltterm.subplots(3, 1)              # generation of a plot with 3 subplots
     pltterm.plotsize(100, 30)           # increase graph dimensions to be easily seen in the terminal
 
     for i in range(3):
         pltterm.subplot(i+1, 1)                                                # here the index starts from 1!
-        spike_positions = torch.nonzero(Data[i, :] == 1).squeeze().numpy()     # array with spike positions
-        pltterm.eventplot(spike_positions)       # draws the spikes in the position of spike_positions
+        spike_positions = torch.nonzero(Data[i, :] == 1).flatten().numpy()     # array with spike positions
+        pltterm.eventplot(spike_positions)                                     
+        pltterm.ylim(0, 2)                                                     # spikes drawn at half height
+        pltterm.yticks([])                                                     # y axis has no meaning here
         pltterm.ylabel("Spikes")
-        pltterm.title("Segnale: "+channels[i])
+        pltterm.title("Segnale: " + channels[i])
         pltterm.xlim(-1, Data.shape[1])
+        pltterm.xticks(list(range(0, Data.shape[1] + 1, 10)))
 
-    pltterm.subplot(3,1)                # consider last graph to put a unique label for the 3 x axes
+    pltterm.subplot(3, 1)               # consider last graph to put a unique label for the 3 x axes
     pltterm.xlabel("Time")
     pltterm.show()
-    pltterm.clear_figure()              
+    pltterm.clear_figure()
+
+def plot_loss_accuracy(loss_train = None, loss_test = None, acc_train = None, acc_test = None):
+    """
+    Function that plots loss and accuracy through epochs.
+
+    Train and test are plotted on separate rows (loss on the left, accuracy on the
+    right). A row is drawn only if both its loss and accuracy histories are given.
+
+    Args:
+        loss_train (list[float]): Train loss for each epoch (optional).
+        loss_test (list[float]): Test loss for each epoch (optional).
+        acc_train (list[float]): Train accuracy (%) for each epoch (optional).
+        acc_test (list[float]): Test accuracy (%) for each epoch (optional).
+
+    Returns:
+        None
+    """
+    rows = [(name, loss, acc)
+            for name, loss, acc in [("train", loss_train, acc_train), ("test", loss_test, acc_test)]
+            if loss is not None and acc is not None]
+    if not rows:
+        raise ValueError("Provide at least one pair (loss, accuracy)")
+
+    fig, ax = plt.subplots(len(rows), 2, figsize=(12, 4 * len(rows)), squeeze=False)
+    for i, (name, loss, acc) in enumerate(rows):
+        epochs = range(1, len(loss) + 1)
+        ax[i, 0].plot(epochs, loss)
+        ax[i, 0].set_title(f"Loss {name}")
+        ax[i, 0].set_ylabel("Loss")
+        ax[i, 1].plot(epochs, acc)
+        ax[i, 1].set_title(f"Accuracy {name}")
+        ax[i, 1].set_ylabel("Accuracy [%]")
+        for a in ax[i]:
+            a.set_xlabel("Epoch")
+
+    plt.tight_layout()
+    plt.show()
+
+def plot_loss_accuracy_in_terminal(loss_train=None, loss_test=None, acc_train=None, acc_test=None):
+    """
+    Function that plots loss and accuracy through epochs in the terminal.
+
+    Train and test are plotted on separate rows (loss on the left, accuracy on the
+    right). A row is drawn only if both its loss and accuracy histories are given.
+
+    Args:
+        loss_train (list[float]): Train loss for each epoch (optional).
+        loss_test (list[float]): Test loss for each epoch (optional).
+        acc_train (list[float]): Train accuracy (%) for each epoch (optional).
+        acc_test (list[float]): Test accuracy (%) for each epoch (optional).
+
+    Returns:
+        None
+    """
+    rows = [(name, loss, acc)
+            for name, loss, acc in [("train", loss_train, acc_train), ("test", loss_test, acc_test)]
+            if loss is not None and acc is not None]
+    if not rows:
+        raise ValueError("Provide at least one pair (loss, accuracy)")
+
+    pltterm.clf()                                   # avoids superimposing graphs if the function is called twice
+    pltterm.subplots(len(rows), 2)
+    pltterm.plotsize(120, 20 * len(rows))
+
+    for i, (name, loss, acc) in enumerate(rows):
+        epochs = list(range(1, len(loss) + 1))
+
+        pltterm.subplot(i + 1, 1)                   # here the index starts from 1!
+        pltterm.plot(epochs, loss)
+        pltterm.title(f"Loss {name}")
+        pltterm.xlabel("Epoch")
+        pltterm.ylabel("Loss")
+
+        pltterm.subplot(i + 1, 2)
+        pltterm.plot(epochs, acc)
+        pltterm.title(f"Accuracy {name}")
+        pltterm.xlabel("Epoch")
+        pltterm.ylabel("Accuracy [%]")
+
+    pltterm.show()
+    pltterm.clear_figure()

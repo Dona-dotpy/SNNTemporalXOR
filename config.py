@@ -22,7 +22,7 @@ TRAIN_SPLIT = 0.8
 INPUT_LAYER, HIDDEN_LAYER, OUTPUT_LAYER = 3, 50, 2
 N_ROBUSTNESS_DATASET = 10
 
-LEARNING_RATE = 0.0001
+LEARNING_RATE = 0.001                              # write in floating point (do not write 1e-3)
 EPOCHS = 1000
 
 # Device
