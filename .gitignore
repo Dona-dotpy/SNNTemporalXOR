@@ -1,0 +1,48 @@
+# ========================
+# PyTorch & Machine Learning
+# ========================
+# Evita di caricare i pesi dei modelli e i log di addestramento
+*.pth
+*.pt
+models/
+runs/
+.tensorboard/
+
+# ========================
+# Python
+# ========================
+# Ignora la cache compilata e gli ambienti virtuali
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ========================
+# macOS & iCloud
+# ========================
+# Ignora i file di sistema nascosti di Apple e i file di transito cloud
+.DS_Store
+.AppleDouble
+.LSOverride
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.iCloud
+
+# ========================
+# Visual Studio Code
+# ========================
+# Ignora le impostazioni locali dell'editor e lo storico dell'area di lavoro
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.history/
