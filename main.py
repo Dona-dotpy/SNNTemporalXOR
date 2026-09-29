@@ -14,9 +14,9 @@ import torch.nn as nn
 functions.print_parameters()
 
 # Generation of Dataset
-train_dataset, test_dataset = functions.generate_train_test_dataset()
+train_dataset, test_dataset = functions.generate_train_validation_dataset()
 # generation of DataLoader
-train_loader, test_loader = functions.generate_train_test_dataloader(train_dataset, test_dataset)
+train_loader, test_loader = functions.generate_train_validation_dataloader(train_dataset, test_dataset)
 
 # first try in the generation of the temporal XOR   
 print(f"Let's see which type of input we have:\n")
@@ -30,7 +30,7 @@ optimizer = torch.optim.Adam(model.parameters(), lr = config.LEARNING_RATE)
 
 # check if the model with these parameters has already been trained, skip training otherwise
 if not functions.check_trained():
-    functions.train_and_test(model, train_loader, test_loader, optimizer, loss_fn)
+    functions.train_and_validate(model, train_loader, test_loader, optimizer, loss_fn)
 else:
     print(f"\nModel with epochs = {config.EPOCHS} and learning rate = {config.LEARNING_RATE} has already been trained")
 

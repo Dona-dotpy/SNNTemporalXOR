@@ -1,12 +1,7 @@
 # ========================
 # PyTorch & Machine Learning
 # ========================
-# Evita di caricare i pesi dei modelli e i log di addestramento
-*.pth
-*.pt
-models/
-runs/
-.tensorboard/
+
 
 # ========================
 # Python

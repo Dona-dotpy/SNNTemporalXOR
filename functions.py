@@ -84,7 +84,7 @@ def generate_new_random_data():
     """
     return DataLoader(classes.TemporalXORDataset(), batch_size=config.BATCH_SIZE, shuffle=False)
 
-def generate_train_test_dataset():
+def generate_train_validation_dataset():
     """
     Function that generates the Temporal XOR dataset and splits it into a train
     and a test set, using fixed seeds for reproducibility.
@@ -108,7 +108,7 @@ def generate_train_test_dataset():
     print(f"The length of the test dataset is: {len(test_dataset)}\n")
     return train_dataset, test_dataset
 
-def generate_train_test_dataloader(train_dataset, test_dataset):
+def generate_train_validation_dataloader(train_dataset, val_dataset):
     """ Generate train and test dataloaders from datasets
 
     Args:
@@ -120,8 +120,8 @@ def generate_train_test_dataloader(train_dataset, test_dataset):
         test_dataloader (torch.utils.data.DataLoader): The DataLoader for the test set (not shuffled).
     """
     train_dataloader = DataLoader(train_dataset, batch_size=config.BATCH_SIZE, shuffle = True)
-    test_dataloader = DataLoader(test_dataset, batch_size=config.BATCH_SIZE, shuffle=False)
-    return train_dataloader, test_dataloader
+    val_dataloader = DataLoader(val_dataset, batch_size=config.BATCH_SIZE, shuffle=False)
+    return train_dataloader, val_dataloader
 
 ## --- TRAIN AND TEST FUNCTIONS ---
 
@@ -171,7 +171,7 @@ def train(model, train_loader, optimizer, loss_fn):
     return avg_loss_train, acc_train
 
 @torch.no_grad()
-def test(model, test_loader, loss_fn):
+def evaluate(model, test_loader, loss_fn):
     """ Executes the evaluation loop for the Spiking Neural Network on the test dataset.
 
     The network is set to evaluation mode and gradient tracking is disabled to 
@@ -210,7 +210,7 @@ def test(model, test_loader, loss_fn):
     acc_test = (total_correct / total_samples) * 100
     return avg_loss_test, acc_test
 
-def train_and_test(model, train_loader, test_loader, optimizer, loss_fn):
+def train_and_validate(model, train_loader, test_loader, optimizer, loss_fn):
     """
     Executes the complete training and evaluation pipeline for the Temporal XOR SNN.
 
@@ -231,14 +231,17 @@ def train_and_test(model, train_loader, test_loader, optimizer, loss_fn):
         None. The model is modified in-place during optimization, and the optimal weights 
         are saved directly to the disk via the `store_model()` function.
     """
+
     print("\nTraining underway ...\n")
     loss_hist_train, acc_hist_train = [], []
     loss_hist_test, acc_hist_test = [], []
 
     best_accuracy_so_far  = 0.0
+
+    # let's define a scheduler, 
     for _ in range(config.EPOCHS):
         avg_loss_train, acc_train = train(model, train_loader, optimizer, loss_fn)
-        avg_loss_test, acc_test = test(model, test_loader, loss_fn)
+        avg_loss_test, acc_test = evaluate(model, test_loader, loss_fn)
         loss_hist_train.append(avg_loss_train), acc_hist_train.append(acc_train)
         loss_hist_test.append(avg_loss_test), acc_hist_test.append(acc_test)
 
@@ -250,9 +253,8 @@ def train_and_test(model, train_loader, test_loader, optimizer, loss_fn):
 
     print(f"Training completed on {config.EPOCHS} epochs")
     print(f"The best accuracy we reached in training is: {max(acc_hist_train)}%")
-    print(f"The best accuracy we reached in testing is: {max(acc_hist_test)}%\n")
-    plot_loss_accuracy_in_terminal(loss_hist_train, acc_hist_train, loss_hist_test, acc_hist_test)
-    #plot_loss_accuracy(loss_hist_train) 
+    print(f"The best accuracy we reached in validation is: {max(acc_hist_test)}%\n")
+    plot_loss_accuracy(loss_hist_train, loss_hist_test, acc_hist_train, acc_hist_test)
 
 def check_trained():
     """ 
@@ -295,7 +297,7 @@ def test_model_robustness(model, loss_fn):
     loss_list, acc_list = [], []
     for _ in range(config.N_ROBUSTNESS_DATASET):
         current_test_loader = generate_new_random_data()
-        loss, acc = test(model, current_test_loader, loss_fn)
+        loss, acc = evaluate(model, current_test_loader, loss_fn)
         acc_list.append(acc)
         loss_list.append(loss)
     print(f"The accuracy we reached is:")

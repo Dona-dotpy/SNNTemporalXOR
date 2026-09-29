@@ -23,7 +23,7 @@ INPUT_LAYER, HIDDEN_LAYER, OUTPUT_LAYER = 3, 50, 2
 N_ROBUSTNESS_DATASET = 10
 
 LEARNING_RATE = 0.001                              # write in floating point (do not write 1e-3)
-EPOCHS = 1000
+EPOCHS = 100
 
 # Device
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
