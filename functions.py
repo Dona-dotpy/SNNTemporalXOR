@@ -11,6 +11,8 @@ Key features:
     * Plotting: Functions to visualize spikes, weights, and membrane potentials.
 """
 
+from pkg_resources import split_sections
+
 import config, classes
 
 import torch
@@ -20,6 +22,7 @@ import plotext as pltterm
 import datetime
 import os
 from torch.utils.data import DataLoader, random_split
+import time
 
 ## -- INPUT FUNCTIONS AND DATA---
 
@@ -93,14 +96,14 @@ def generate_train_validation_dataset():
         train_dataset (torch.utils.data.Subset): The subset used for training.
         test_dataset (torch.utils.data.Subset): The subset used for testing.
     """
-    torch.manual_seed(142)                                                  # Seed setup
+    torch.manual_seed(config.SEED)                                          # Seed setup
     dataset = classes.TemporalXORDataset()                                  # Dataset allocation
     n_train = int(config.TRAIN_SPLIT * len(dataset))                        # length of train dataset
     n_test = len(dataset) - n_train                                         # length of test dataset
     train_dataset, test_dataset = random_split(                                                       
         dataset,
         [n_train, n_test],
-        generator = torch.Generator().manual_seed(42)
+        generator = torch.Generator().manual_seed(config.SEED)
     )
 
     print("Train dataset e Test dataset successfully generated.")
@@ -166,7 +169,7 @@ def train(model, train_loader, optimizer, loss_fn):
         loss_train_hist.append(loss_train.item())                           # store results
 
     avg_loss_train = sum(loss_train_hist) / len(train_loader)               # average loss in this epoch
-    acc_train = (total_correct / total_samples) * 100                       # accuracy in this epoch
+    acc_train = ((total_correct / total_samples) * 100).item()              # accuracy in this epoch (.item() to convert a tensor into a float)
 
     return avg_loss_train, acc_train
 
@@ -207,7 +210,7 @@ def evaluate(model, test_loader, loss_fn):
 
 
     avg_loss_test = sum(loss_test_hist) / len(test_loader)
-    acc_test = (total_correct / total_samples) * 100
+    acc_test = ((total_correct / total_samples) * 100).item()
     return avg_loss_test, acc_test
 
 def train_and_validate(model, train_loader, test_loader, optimizer, loss_fn):
@@ -237,6 +240,7 @@ def train_and_validate(model, train_loader, test_loader, optimizer, loss_fn):
     loss_hist_test, acc_hist_test = [], []
 
     best_accuracy_so_far  = 0.0
+    start_time = time.perf_counter()
 
     # let's define a scheduler, 
     for _ in range(config.EPOCHS):
@@ -251,9 +255,13 @@ def train_and_validate(model, train_loader, test_loader, optimizer, loss_fn):
             best_accuracy_so_far = acc_test
             store_model(model)
 
+    tot_time = time.perf_counter() - start_time
+    minutes, seconds = int(tot_time // 60), tot_time % 60 
+        
     print(f"Training completed on {config.EPOCHS} epochs")
     print(f"The best accuracy we reached in training is: {max(acc_hist_train)}%")
     print(f"The best accuracy we reached in validation is: {max(acc_hist_test)}%\n")
+    print(f"Test time [min:sec]: {minutes}:{seconds:05.2f}\n")
     plot_loss_accuracy(loss_hist_train, loss_hist_test, acc_hist_train, acc_hist_test)
 
 def check_trained():
@@ -274,11 +282,13 @@ def check_trained():
         # iters on the model names inside the folder to look for learing rate and epochs
         for filename in os.listdir(folder_name):
             if filename.endswith(".pth"):           # avoids to analyse file automatically generated from operative system
-                no_date = filename[10:-4]           # YYYYMMDD-eVAL1-lrVAL2.pth -> VAL1-e-VAL2
-                split_dashed = no_date.split("-")   # VAL1-e-VAL2 -> ["VAL1", "e", "VAL2"]
-                epochs = int(split_dashed[0])
+                split_dashed = filename.split("-")   # EVAL1-LRVAL2-HVAl3-BVAL4 -> [EVAL1, LRVAL2, HVAL3, BVAL4.pth]
+                epochs = int(split_dashed[0][1:])
                 lr = float(split_dashed[1][2:])
-                if lr == config.LEARNING_RATE and epochs == config.EPOCHS:
+                hidden = int(split_dashed[2][1:])
+                beta = float(split_dashed[3][1:-4])
+
+                if lr == config.LEARNING_RATE and epochs == config.EPOCHS and hidden == config.HIDDEN_LAYER and beta == config.BETA:
                     return True
     return False
 
@@ -295,6 +305,7 @@ def test_model_robustness(model, loss_fn):
         None
     """
     loss_list, acc_list = [], []
+    start_time = time.perf_counter()
     for _ in range(config.N_ROBUSTNESS_DATASET):
         current_test_loader = generate_new_random_data()
         loss, acc = evaluate(model, current_test_loader, loss_fn)
@@ -304,6 +315,10 @@ def test_model_robustness(model, loss_fn):
     print(f"    -> worst accuracy: {min(acc_list):.2f}%")
     print(f"    -> Best accuracy: {max(acc_list):.2f}%")
     print(f"    -> Average accuracy: {sum(acc_list)/len(acc_list):.2f}%\n")
+
+    tot_time = time.perf_counter() - start_time
+    minutes, seconds = int(tot_time // 60), tot_time % 60 
+    print(f"Test time [min:sec]: {minutes}:{seconds:05.2f}\n")
     print("Let's see the loss and accuracy trends ...\n")
     plot_loss_accuracy_in_terminal(loss_test=loss_list, acc_test=acc_list)
 
@@ -323,11 +338,10 @@ def store_model(model):
         None
     """
     os.makedirs("models", exist_ok=True)                                                    # create model folder if not present
-    current_date = datetime.datetime.now().strftime("%Y%m%d")                               # get the current date
-    modelname = f"models/{current_date}-E{config.EPOCHS}-LR{config.LEARNING_RATE}.pth"      # decide the model name
+    modelname = f"models/E{config.EPOCHS}-LR{config.LEARNING_RATE}-H{config.HIDDEN_LAYER}-B{config.BETA}.pth"      # decide the model name
     torch.save(model.state_dict(), modelname)
 
-def load_model(epochs = config.EPOCHS, lr = config.LEARNING_RATE):
+def load_model(epochs = config.EPOCHS, lr = config.LEARNING_RATE, hidden = config.HIDDEN_LAYER, beta=config.BETA):
     """ 
     Function that proceeds to create the string and load the corresponding 
     model based on the parameters stored in "config.py" before the compiling
@@ -340,8 +354,8 @@ def load_model(epochs = config.EPOCHS, lr = config.LEARNING_RATE):
                                  or None if not found
     """
 
-    check_string = f"E{epochs}-LR{lr}"                 # create the model we have to look for
-    folder_name = "models"                                                       # directory
+    check_string = f"E{epochs}-LR{lr}-H{hidden}-B{beta}"                        # create the model we have to look for
+    folder_name = "models"                                                      # directory
     if os.path.exists(folder_name):
         for filename in os.listdir(folder_name):
             if filename.endswith(".pth") and check_string in filename:          # ensure to choose correct name and that is model
@@ -359,7 +373,6 @@ def load_model(epochs = config.EPOCHS, lr = config.LEARNING_RATE):
 def print_parameters():
     """ Function to print some relevant parameters inside config.py
     """
-    print("|                                                                         |")
     print("\n===========================================================================")
     print(f"|    Working device:     {config.DEVICE}                                              |")
     print("|                                                                         |")

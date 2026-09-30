@@ -1,8 +1,6 @@
 # Dataset generation of to train the net for temporal XOR
 
 ## --- Libraries ---
-from tkinter import N
-
 import classes, functions, config
 
 import torch
@@ -38,7 +36,7 @@ else:
     while True:
         choice = input(f"[y/n]  Do you want to train it again?  ").strip().lower()              # get keyboard IN, remove void spaces and make everything lowercase
         if choice == "y":
-            functions.train_and_test(model, train_loader, test_loader, optimizer, loss_fn)
+            functions.train_and_validate(model, train_loader, test_loader, optimizer, loss_fn)
             break
         elif choice == "n":
             # Choice regarding which model we want to load
@@ -48,8 +46,10 @@ else:
                 if choice == "y":
                     epochs = input("Which is the number of training epochs?  ").strip()
                     lr = input("Which is the learning rate?  ").strip()
+                    hidden = input("How many neurons there are per hidden layer?   ").strip()
+                    beta = input("Which is the Beta parameter of the neuron?   ").strip()
                     print("Let's load model parameters and test model robustness... ")
-                    model = functions.load_model(epochs, lr)
+                    model = functions.load_model(epochs, lr, hidden, beta)
                     break
                 elif choice == "n":
                     print("Let's load default model and the the robustness...")
