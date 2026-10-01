@@ -1,0 +1,37 @@
+{
+  "os":  "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "python":  "CPython 3.13.9",
+  "startedAt":  "2026-10-01T11:12:37.797426Z",
+  "program":  "/Users/dona/Documents/GitHub/SNNTemporalXOR/scripts/optimize_hyperparameters.py",
+  "codePath":  "scripts/optimize_hyperparameters.py",
+  "codePathLocal":  "scripts/optimize_hyperparameters.py",
+  "git":  {
+    "remote":  "https://github.com/Dona-dotpy/SNNTemporalXOR.git",
+    "commit":  "ad3ed03c731f78fbf0727718bcf34dafe4aa13c3"
+  },
+  "email":  "sxvxgtrrz5@privaterelay.appleid.com",
+  "root":  "/Users/dona/Documents/GitHub/SNNTemporalXOR",
+  "host":  "MacBook-Air-di-Luca.local",
+  "executable":  "/Users/dona/.venvs/thesis-venv/bin/python",
+  "cpu_count":  10,
+  "cpu_count_logical":  10,
+  "disk":  {
+    "/":  {
+      "total":  "494384795648",
+      "used":  "313311735808"
+    }
+  },
+  "memory":  {
+    "total":  "17179869184"
+  },
+  "apple":  {
+    "name":  "Apple M4",
+    "ecpuCores":  6,
+    "pcpuCores":  4,
+    "gpuCores":  10,
+    "memoryGb":  16,
+    "ramTotalBytes":  "17179869184",
+    "macModel":  "Mac16,13"
+  },
+  "writerId":  "m20jieik7ncmuhblr210y50zjz4of71w"
+}

@@ -25,7 +25,7 @@ INPUT_LAYER, HIDDEN_LAYER, OUTPUT_LAYER = 3, 50, 2
 SCHEDULER = torch.optim.lr_scheduler.ReduceLROnPlateau
 
 
-LEARNING_RATE = 0.001                              # write in floating point (do not write 1e-3)
+LEARNING_RATE = 0.00172                              # write in floating point (do not write 1e-3)
 EPOCHS = 1000
 
 # Device
@@ -36,3 +36,22 @@ elif workload > 10000000 and torch.backends.mps.is_available():
     DEVICE = "mps"
 else:
     DEVICE = "cpu"
+
+# Hyperparameters optimization
+
+STUDY_NAME = "learning_rate_optimization"
+OPTUNA_DB_PATH = "optimization_results/learning_rate/learning_rate_optimization.db"
+TARGET_TRIALS = 3
+EPOCHS_OPTIMISATION = 20
+CHECKPOINT_INTERVAL = 5
+
+LR_MIN, LR_MAX = 1e-5, 1e-2
+BETA_MIN, BETA_MAX = 0.80, 0.99
+HIDDEN_LAYER_MIN, HIDDEN_LAYER_MAX = 20, 100
+OPTIMIZERS = ["Adam", "AdamW", "SGD"]
+SCHEDULERS = ["LambdaLR", "MultiplicativeLR", "StepLR", "MultiStepLR", "ConstantLR", "LinearLR", 
+              "ExponentialLR", "CosineAnnealingLR", "ReduceLROnPlateau", "CosineAnnealingWarmRestarts",
+            "PolynomialLR"]
+LOSSES = [ "CrossEntropyLoss", "NLLLoss", "MSELoss"]
+INITIALIZATIONS = ["default", "xavier_uniform", "xavier_normal",
+                    "kaiming_uniform", "kaiming_normal", "orthogonal"]
