@@ -26,6 +26,9 @@ model = classes.XORSNN().to(config.DEVICE)
 loss_fn = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr = config.LEARNING_RATE)
 
+# Search of the optimal schedulers
+
+
 # check if the model with these parameters has already been trained, skip training otherwise
 if not functions.check_trained():
     functions.train_and_validate(model, train_loader, test_loader, optimizer, loss_fn)
@@ -42,7 +45,7 @@ else:
             # Choice regarding which model we want to load
             print("Are you looking for a specific model?")
             while True:
-                choice = input("[ y/n]   Say 'y' if you are looking for a specific model, 'n' if I can load deafult model:  ").strip().lower()
+                choice = input("[y/n]   Say 'y' if you are looking for a specific model, 'n' if I can load deafult model:  ").strip().lower()
                 if choice == "y":
                     epochs = input("Which is the number of training epochs?  ").strip()
                     lr = input("Which is the learning rate?  ").strip()
@@ -61,3 +64,4 @@ else:
             break
         else:
             print("Input not recognized. Please insert 'y' for yes and 'n' for no")
+

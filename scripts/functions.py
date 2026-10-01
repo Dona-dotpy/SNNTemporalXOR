@@ -11,8 +11,6 @@ Key features:
     * Plotting: Functions to visualize spikes, weights, and membrane potentials.
 """
 
-from pkg_resources import split_sections
-
 import config, classes
 
 import torch
@@ -213,7 +211,7 @@ def evaluate(model, test_loader, loss_fn):
     acc_test = ((total_correct / total_samples) * 100).item()
     return avg_loss_test, acc_test
 
-def train_and_validate(model, train_loader, test_loader, optimizer, loss_fn):
+def train_and_validate(model, train_loader, test_loader, optimizer, loss_fn, sched = config.SCHEDULER):
     """
     Executes the complete training and evaluation pipeline for the Temporal XOR SNN.
 
@@ -242,12 +240,22 @@ def train_and_validate(model, train_loader, test_loader, optimizer, loss_fn):
     best_accuracy_so_far  = 0.0
     start_time = time.perf_counter()
 
-    # let's define a scheduler, 
+    # scheduler implementation
+    scheduler = sched(
+        optimizer,              # optimizer we want to optimize
+        mode = "min",           # says that the metrics must be reduced
+        factor = 0.5,           # when reduce the LR, multiply by 0.5
+        patience = 100,         # wait 100 epochs without an improvement before changing the LR
+        min_lr = 0.00001        # minimum value of the LR
+    )
+
     for _ in range(config.EPOCHS):
         avg_loss_train, acc_train = train(model, train_loader, optimizer, loss_fn)
         avg_loss_test, acc_test = evaluate(model, test_loader, loss_fn)
         loss_hist_train.append(avg_loss_train), acc_hist_train.append(acc_train)
         loss_hist_test.append(avg_loss_test), acc_hist_test.append(acc_test)
+
+        scheduler.step(avg_loss_test)
 
         # if we get a good accuracy, store the model (this avoid to save the model only at the end of the last epoch
         # in order to avoid saving parameters if the training is making the model worse)
@@ -368,7 +376,7 @@ def load_model(epochs = config.EPOCHS, lr = config.LEARNING_RATE, hidden = confi
     print(f"No model found with the parameters: {check_string}")                # Handle the case with no model present with that name
     return None
 
-## --- Plotting and printing functions ---
+## --- PLOTTING AND PRINTING FUNCTIONS ---
 
 def print_parameters():
     """ Function to print some relevant parameters inside config.py
@@ -532,3 +540,4 @@ def plot_loss_accuracy_in_terminal(loss_train=None, loss_test=None, acc_train=No
 
     pltterm.show()
     pltterm.clear_figure()
+
