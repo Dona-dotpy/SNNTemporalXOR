@@ -41,6 +41,8 @@ import classes, functions, config
 
 ## --- FUNCTIONS ---
 
+# store / load functions
+
 def save_checkpoint(trial, epoch, model, optimizer, lowest_loss):
     """ 
     Function useful to store a checkpoint, which means that we save all the relevant informations 
@@ -141,9 +143,6 @@ def get_optimization_config():
         "lr_min": config.LR_MIN,
         "lr_max": config.LR_MAX,
 
-        "beta_min": config.BETA_MIN,
-        "beta_max": config.BETA_MAX,
-
         "hidden_layer_min": config.HIDDEN_LAYER_MIN,
         "hidden_layer_max": config.HIDDEN_LAYER_MAX,
 
@@ -185,6 +184,58 @@ def archive():
     checkpoints_dir = os.path.join(optimization_dir, "checkpoints")
     if os.path.exists(checkpoints_dir):
         shutil.move(checkpoints_dir, archive_dir)                       # move checkpoint file from checkpoint_dir to archive_dir
+
+# optimizer functions
+
+def define_optimizer(trial, model, lr):
+    """
+    Defines and generates the optimizer for the current Optuna trial.
+
+    Args:
+        trial (optuna.trial.Trial): Current Optuna trial
+        model (torch.nn.Module):    Model to which we want to apply the optimizer
+        lr (float):                 Learning rate used by the optimizer
+
+    Returns:
+        torch.optim.Optimizer:      Optimizer generated with the sampled parameters
+    """
+
+    optimizer_name = trial.suggest_categorical("optimizer", config.OPTIMIZERS)
+    use_weight_decay = trial.suggest_categorical("use_weight_decay", [True, False])
+    if use_weight_decay:
+        weight_decay = trial.suggest_float("weight_decay", config.WEIGHT_DECAY_MIN, config.WEIGHT_DECAY_MAX, log = True)
+    else:
+        weight_decay = 0.0
+    if optimizer_name in ["Adam", "AdamW"]:
+        beta1 = trial.suggest_float("beta1", config.BETA1_MIN, config.BETA1_MAX)
+        beta2 = trial.suggest_float("beta2", config.BETA2_MIN, config.BETA2_MAX)
+        ams_grad = trial.suggest_categorical("amsgrad", [True, False])
+        momentum, nesterov = None, None
+    elif optimizer_name == "SGD":
+        momentum = trial.suggest_float("momentum", config.MOMENTUM_MIN, config.MOMENTUM_MAX)
+        if momentum > 0:
+            nesterov = trial.suggest_categorical("nesterov", [True, False])
+        else:
+            nesterov = False
+        beta1, beta2, ams_grad = None, None, None
+
+    if optimizer_name == "Adam":
+        return torch.optim.Adam(
+            model.parameters(), lr=lr, betas=(beta1, beta2),
+            weight_decay=weight_decay, amsgrad=ams_grad
+        )
+    elif optimizer_name == "AdamW":
+        return torch.optim.AdamW(
+            model.parameters(), lr=lr, betas=(beta1, beta2),
+            weight_decay=weight_decay, amsgrad=ams_grad
+        )
+    elif optimizer_name == "SGD":
+        return torch.optim.SGD(
+            model.parameters(), lr=lr, momentum=momentum,
+            weight_decay=weight_decay, nesterov=nesterov
+        )
+
+# Objective functions
 
 def objective(trial, train_loader, val_loader, start_time, previous_optimization_time):
     """
@@ -306,28 +357,38 @@ def objective(trial, train_loader, val_loader, start_time, previous_optimization
     The final returned value is the score associated with that specific
     hyperparameter configuration.
     """
-    lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)                                            # we look for a float search in logaritmic scale (big interval)
-    torch.manual_seed(config.SEED)                                                                  # set seed for reproducibility
 
-    # setup a communication with W&B (previous login from terminal is required)
-    run = wandb.init(                                                                               
-            project="SNNTemporalXOR",                                                               # name of the project we will see on W&B
-            group="learning_rate_optimization",                                                     # every run will be under the same group to record data
-            name=f"trial-{trial.number}",                                                           
-            config={                                                                                # fixed parameters of the run
-                "trial": trial.number,
-                "lr": lr,
-                "epochs": config.EPOCHS_OPTIMISATION
-            },
-            reinit="finish_previous"                                                                # magaes the situation in which there is another run active (waits the previuos one to finish)
-        )
+    torch.manual_seed(config.SEED)      # seed setup for reproducibility 
+
+    # hyperparameter sampling and
+    # optimizer parameters search -> we don't look only to "which optimizer" but to "which optimizer and with which parameters"!
+
+    hidden_layer = trial.suggest_int("hidden_layer", config.HIDDEN_LAYER_MIN, config.HIDDEN_LAYER_MAX)
+    model = classes.XORSNN(hidden_layer=hidden_layer).to(config.DEVICE)
+    lr = trial.suggest_float("lr", config.LR_MIN, config.LR_MAX, log=True)                          # we look for a float search in logaritmic scale (big interval)
+    optimizer = define_optimizer(trial, model, lr)
+
+    # scheduler_name = trial.suggest_categorical("scheduler", config.SCHEDULERS)
+    loss_fn = torch.nn.CrossEntropyLoss()
+         
+    run = None                          # to avoid any problem with "finally"          
 
     # use try/finally structure to ensure closure of the wandb communication in case of any error
-    try:        
-        # parameters of the net and optimizators
-        model = classes.XORSNN().to(config.DEVICE)
-        optimizer = torch.optim.Adam(model.parameters(), lr = lr)
-        loss_fn = torch.nn.CrossEntropyLoss()
+    try: 
+
+        # setup a communication with W&B (previous login from terminal is required)
+        run = wandb.init(                                                                               
+                project="SNNTemporalXOR",                                                               # name of the project we will see on W&B
+                group="learning_rate_optimization",                                                     # every run will be under the same group to record data
+                name=f"trial-{trial.number}",                                                           
+                config={                                                                                # fixed parameters of the run
+                    "trial": trial.number,
+                    "lr": lr,
+                    "epochs": config.EPOCHS_OPTIMISATION
+                },
+                reinit="finish_previous"                                                                # magaes the situation in which there is another run active (waits the previuos one to finish)
+            )
+        
 
         # checkpoint load
         checkpoint = load_checkpoint(trial, model, optimizer)
@@ -386,7 +447,8 @@ def objective(trial, train_loader, val_loader, start_time, previous_optimization
         run.summary["status"] = "completed"                             # if the for cicle ended correctly, the trial is completed 
     
     finally:
-        run.finish()            # interrupt W&B transmission
+        if run is not None:
+            run.finish()            # interrupt W&B transmission
     
     return lowest_loss
 

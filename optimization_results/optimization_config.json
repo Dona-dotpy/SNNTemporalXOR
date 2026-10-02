@@ -1,8 +1,6 @@
 {
     "lr_min": 1e-05,
     "lr_max": 0.01,
-    "beta_min": 0.8,
-    "beta_max": 0.99,
     "hidden_layer_min": 20,
     "hidden_layer_max": 100,
     "optimizers": [
@@ -11,8 +9,7 @@
         "SGD"
     ],
     "schedulers": [
-        "LambdaLR",
-        "MultiplicativeLR",
+        "None",
         "StepLR",
         "MultiStepLR",
         "ConstantLR",
@@ -36,5 +33,5 @@
         "kaiming_normal",
         "orthogonal"
     ],
-    "epochs_optimisation": 102
+    "epochs_optimisation": 100
 }

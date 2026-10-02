@@ -1,0 +1,40 @@
+{
+    "lr_min": 1e-05,
+    "lr_max": 0.01,
+    "beta_min": 0.8,
+    "beta_max": 0.99,
+    "hidden_layer_min": 20,
+    "hidden_layer_max": 100,
+    "optimizers": [
+        "Adam",
+        "AdamW",
+        "SGD"
+    ],
+    "schedulers": [
+        "LambdaLR",
+        "MultiplicativeLR",
+        "StepLR",
+        "MultiStepLR",
+        "ConstantLR",
+        "LinearLR",
+        "ExponentialLR",
+        "CosineAnnealingLR",
+        "ReduceLROnPlateau",
+        "CosineAnnealingWarmRestarts",
+        "PolynomialLR"
+    ],
+    "losses": [
+        "CrossEntropyLoss",
+        "NLLLoss",
+        "MSELoss"
+    ],
+    "initializations": [
+        "default",
+        "xavier_uniform",
+        "xavier_normal",
+        "kaiming_uniform",
+        "kaiming_normal",
+        "orthogonal"
+    ],
+    "epochs_optimisation": 102
+}
