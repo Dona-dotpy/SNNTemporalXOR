@@ -6,7 +6,7 @@ Main features:
 - W&B logs training/validation metrics for each trial and allows remote monitoring.
 - Before resuming a previous optimization, the relevant parameters currently defined
   in `config.py` are compared with the configuration saved in
-  `optimization_results/hyperparameter_search/optimization_config.json`.
+  `optimization_results/optimization_config.json`.
   If any parameter has changed, the differences are shown before deciding whether
   to restart the optimization from scratch.
 - The target number of trials is treated as a total target, so interrupted studies
@@ -34,6 +34,7 @@ import json
 import sys
 import shutil
 from datetime import datetime
+import time
 
 import torch
 import classes, functions, config
@@ -58,9 +59,9 @@ def save_checkpoint(trial, epoch, model, optimizer, lowest_loss):
     """
 
     # choose where to save the checkpoint
-    checkpoint_dir = f"optimization_results/checkpoints/trial_{trial.number}"
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    checkpoint_path = os.path.join(checkpoint_dir, "checkpoint.pt")
+    checkpoint_dir = f"optimization_results/checkpoints/trial_{trial.number}"               # check for last trial performed
+    os.makedirs(checkpoint_dir, exist_ok=True)                                              # create directory if not present
+    checkpoint_path = os.path.join(checkpoint_dir, "checkpoint.pt")                         # join names to create full path
 
     # dictionary that contains all the relevant informations to start the optimization in a second moment
     checkpoint = {
@@ -91,21 +92,21 @@ def load_checkpoint(trial, model, optimizer):
             checkpoint (dict):      Complete checkpoint dictionary
     """
 
-    # search and load checkpoint, if present, otherwise return None
+    # search and load checkpoint from its path if present, otherwise return None
     checkpoint_path = f"optimization_results/checkpoints/trial_{trial.number}/checkpoint.pt"  
     try:    
         checkpoint = torch.load(checkpoint_path, map_location = config.DEVICE)
     except FileNotFoundError:
         return None
 
-    # assignment of checkpoint values
-    model.load_state_dict(checkpoint["model_state_dict"])
-    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])       
+    # assignment of checkpoint values when checkpoint is present
+    model.load_state_dict(checkpoint["model_state_dict"])               # load model paraemters 
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])       # load optimizer parameters     
     torch.set_rng_state(checkpoint["torch_rng_state"].cpu())            # get state of the random number generator to preserve deterministic behavior (on cpu because it refers to seed of cpu, not cuda)
-    start_epoch = checkpoint["epoch"]+1
-    lowest_loss = checkpoint["lowest_loss"]
+    start_epoch = checkpoint["epoch"]+1                                 # select successive epoch from where we want to start again the optimization
+    lowest_loss = checkpoint["lowest_loss"]                             # load best result we obtained so far
 
-    return start_epoch, lowest_loss, checkpoint
+    return start_epoch, lowest_loss, checkpoint 
 
 def save_optimization_config(optimisation_config):
     """
@@ -150,11 +151,13 @@ def get_optimization_config():
         "schedulers": config.SCHEDULERS,
         "losses": config.LOSSES,
         "initializations": config.INITIALIZATIONS,
+        "epochs_optimisation": config.EPOCHS_OPTIMISATION,
     }
 
-def archive_optimization():
+def archive():
     """
-    Archive the current optimization before starting a new one
+    Archive the current Optuna database, optimization configuration and
+    the whole checkpoints directory before starting a new optimization
 
     Args:
         None
@@ -163,27 +166,27 @@ def archive_optimization():
         None
     """
 
-    # create path where we want to save old optimizations and create directory 
+    # create path where we want to archive everything and create directory 
     optimization_dir = "optimization_results"                           # directory where we save optimisations ended
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")            # get current data to creare directory result
     archive_dir = os.path.join(optimization_dir, "archive", timestamp)  # complete name
     os.makedirs(archive_dir, exist_ok = True)
 
-    # check if the file path exists before moving it
+    # check if the file path of the database exists and moves the database
     if os.path.exists(config.OPTUNA_DB_PATH):
-        shutil.move(config.OPTUNA_DB_PATH, archive_dir)
+        shutil.move(config.OPTUNA_DB_PATH, archive_dir)                 # move database from config.OPTUNA_DB_PATH to archive_dir     
 
-    # check if the file path exists before moving it 
-    config_path = os.path.join(optimization_dir, "optimization_config.json")
+    # check if the file path of the configuration file exists and moves it 
+    config_path= os.path.join(optimization_dir, "optimization_config.json")
     if os.path.exists(config_path):
-        shutil.move(config_path, archive_dir)
+        shutil.move(config_path, archive_dir)                           # move configuration file from config_path to archive_dir               
 
-    # create a path where we want to save old checkpoints and create directory
+    # create a path where we want to save old checkpoints and store them
     checkpoints_dir = os.path.join(optimization_dir, "checkpoints")
     if os.path.exists(checkpoints_dir):
-        shutil.move(checkpoints_dir, archive_dir)
+        shutil.move(checkpoints_dir, archive_dir)                       # move checkpoint file from checkpoint_dir to archive_dir
 
-def objective(trial, train_loader, val_loader):
+def objective(trial, train_loader, val_loader, start_time, previous_optimization_time):
     """
     Objective function used by Optuna.
 
@@ -303,19 +306,20 @@ def objective(trial, train_loader, val_loader):
     The final returned value is the score associated with that specific
     hyperparameter configuration.
     """
-    lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)                                            # we look for a float searchd in logaritmic scale
+    lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)                                            # we look for a float search in logaritmic scale (big interval)
     torch.manual_seed(config.SEED)                                                                  # set seed for reproducibility
 
-    run = wandb.init(                                                                               # initialize weights and biases to see training steps on W&B
-            project="SNNTemporalXOR",
-            group="learning_rate_optimization",
-            name=f"trial-{trial.number}",
-            config={
+    # setup a communication with W&B (previous login from terminal is required)
+    run = wandb.init(                                                                               
+            project="SNNTemporalXOR",                                                               # name of the project we will see on W&B
+            group="learning_rate_optimization",                                                     # every run will be under the same group to record data
+            name=f"trial-{trial.number}",                                                           
+            config={                                                                                # fixed parameters of the run
                 "trial": trial.number,
                 "lr": lr,
                 "epochs": config.EPOCHS_OPTIMISATION
             },
-            reinit="finish_previous"
+            reinit="finish_previous"                                                                # magaes the situation in which there is another run active (waits the previuos one to finish)
         )
 
     # use try/finally structure to ensure closure of the wandb communication in case of any error
@@ -325,40 +329,62 @@ def objective(trial, train_loader, val_loader):
         optimizer = torch.optim.Adam(model.parameters(), lr = lr)
         loss_fn = torch.nn.CrossEntropyLoss()
 
+        # checkpoint load
         checkpoint = load_checkpoint(trial, model, optimizer)
-        if checkpoint is None:
+        if checkpoint is None:  
             start_epoch = 0
             lowest_loss = float("inf")                                                                  # generate +inf since we are in front of a minimization problem
         else:
             start_epoch, lowest_loss, checkpoint = checkpoint
 
-        for epoch in range(start_epoch, config.EPOCHS_OPTIMISATION):                                                              # train loop
-            avg_loss_train, acc_train = functions.train(model, train_loader, optimizer, loss_fn)
-            avg_loss_val, acc_val = functions.evaluate(model, val_loader, loss_fn)
-
-            run.log({                                                                                   # send data to iPhone
-                "epoch": epoch,
-                "train_loss": avg_loss_train,
-                "val_loss": avg_loss_val,
-                "train_accuracy": acc_train,
-                "val_accuracy": acc_val,
-                "lr": optimizer.param_groups[0]["lr"]
-            })          
+        # train/validate loop
+        for epoch in range(start_epoch, config.EPOCHS_OPTIMISATION):                                   
+            avg_loss_train, acc_train = functions.train(model, train_loader, optimizer, loss_fn)        # train function
+            avg_loss_val, acc_val = functions.evaluate(model, val_loader, loss_fn)                      # validation function
 
             # keep the lowest validation loss reached during training, not only the final one
             if avg_loss_val < lowest_loss:                                                              
                 lowest_loss = avg_loss_val
 
-            # save the checkpoint every 10 epochs
+            # decide which data we have to send to W&B (data necessary to build graphs and metrics inside the app)
+            current_sim_time = previous_optimization_time + (time.perf_counter() - start_time)      # total simulation time up to now
+            study.set_user_attr("optimization_time", current_sim_time)
+            # convert simulation time into [hh:mm:ss]
+            hours = int(current_sim_time// 3600)                                   # // on a float returns a float
+            minutes = int((current_sim_time - hours*3600) // 60)
+            seconds = int(current_sim_time % 60)
+            sim_time_string = f"{hours:02d}:{minutes:02d}:{seconds:02d}" 
+            run.log({                                                                                   
+                "epoch": epoch,
+                "train_loss": avg_loss_train,
+                "val_loss": avg_loss_val,
+                "train_accuracy": acc_train,
+                "val_accuracy": acc_val,
+                "lr": optimizer.param_groups[0]["lr"],
+                "sim_time": current_sim_time
+            })
+            # decide which data the user sees in the inital summary
+            run.summary["best_val_loss"] = lowest_loss
+            run.summary["final_val_loss"] = avg_loss_val
+            run.summary["final_val_accuracy"] = acc_val
+            run.summary["completed_epochs"] = epoch + 1
+            run.summary["final_lr"] = optimizer.param_groups[0]["lr"]
+            run.summary["status"] = "in progress" 
+            run.summary["simulation_time"] = sim_time_string                # refresh summary table on W&B
+
+            # save the checkpoint every config.CHECKPOINT_INTERVAL epochs
             if (epoch + 1) % config.CHECKPOINT_INTERVAL == 0:
                 save_checkpoint(trial, epoch, model, optimizer, lowest_loss)
 
-            trial.report(avg_loss_val, step=epoch)                                                      # reports the current validation loss to Optuna for this epoch  
+            trial.report(avg_loss_val, step=epoch)                          # reports the current validation loss to Optuna study for this epoch  
 
             # check if it's convenient an early stop
-            if trial.should_prune():                                                                    
+            if trial.should_prune():
+                run.summary["status"] = "pruned"                                                                    
                 raise optuna.TrialPruned()
-
+            
+        run.summary["status"] = "completed"                             # if the for cicle ended correctly, the trial is completed 
+    
     finally:
         run.finish()            # interrupt W&B transmission
     
@@ -379,52 +405,59 @@ else:
 train_dataset, val_dataset = functions.generate_train_validation_dataset()
 train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
 
+# check if a study is already present
 study_exists = os.path.exists(config.OPTUNA_DB_PATH)
 
 if not study_exists:
     print("\nNo optimization present, let's start a new one from scratch...\n")
-    save_optimization_config(current_config)
+    save_optimization_config(current_config)                                        # config.py script could have been changed
 
-elif current_config == saved_config:
+elif current_config == saved_config:                                                # No change in the configuration file
     while True:
         selection = input("\n[y/n] Previous optimization found, do you want to continue?\n").strip().lower()
         if selection == "y":
             break
         elif selection == "n":
-            sys.exit()
+            sys.exit()                                                              # end the the execution of the script
         print("Input not recognized. Please insert 'y' for yes and 'n' for no")
 
 else:
     while True:
         selection = input("\n[y/n] Configurations changed, do you want to start a new optimization?\n").strip().lower()
         if selection == "y":
-            archive_optimization()
+            archive()
             save_optimization_config(current_config)
             break
         elif selection == "n":
             sys.exit()
         print("Input not recognized. Please insert 'y' for yes and 'n' for no")
 
+# configuration of the sampler and of the pruner
 sampler = optuna.samplers.TPESampler(seed = config.SEED)                        # decides which values oh hyperparameters we have to try in the next trial, in this case it's based on best results of previus trials
 pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=100)    # for a minimization study, prunes trials whose intermediate loss is worse than the median of previous completed trials (1st 5 trials completed interely, never stop before epoch 100)
 
-study = optuna.create_study(                                        # creates a new optimization study aimed at minimizing the objective value and stores it in a Study object that manages the trials
+# load/create the study to run the optimization alogithm
+study = optuna.create_study(                                       
     study_name = config.STUDY_NAME,
-    direction="minimize",
+    direction="minimize",                               # task required
     sampler = sampler,
     pruner = pruner,
-    storage=f"sqlite:///{config.OPTUNA_DB_PATH}",
-    load_if_exists=True
+    storage=f"sqlite:///{config.OPTUNA_DB_PATH}",       # storage location
+    load_if_exists=True                                 # if a study is already present, do now create a new one but load the existing one
     )
 
+# initialize time to the initial value
+previous_optimization_time = study.user_attrs.get("optimization_time", 0.0)     # obtain optimization time from previuos optimization
+optimization_start_time = time.perf_counter()                                   # reference to time from time library
+
+# Compute the trial reamining before the end of the study (useful when we load a checkpoint)
 remaining_trials = config.TARGET_TRIALS - len(study.trials)
 if remaining_trials > 0:
     study.optimize(                                                     # we pass to the study object what we must minimize and in how many trials
-        lambda trial: objective(trial, train_loader, val_loader),       # Optuna expects a function callable as f(trial); we map objective(trial, train_ld, test_ld) -> f(trial)
+        lambda trial: objective(trial, train_loader, val_loader, optimization_start_time, previous_optimization_time),       # Optuna expects a function callable as f(trial); we map objective(trial, train_ld, test_ld) -> f(trial)
         n_trials=remaining_trials
     )                               
 
+# Values we want to print in the terminal
 print("Best value:", study.best_value)
 print("Best parameters:", study.best_params)
-
-

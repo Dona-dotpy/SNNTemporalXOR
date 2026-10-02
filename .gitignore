@@ -41,3 +41,8 @@ pip-delete-this-directory.txt
 !.vscode/tasks.json
 !.vscode/launch.json
 .history/
+
+# ========================
+# wandb
+# ========================
+wandb/

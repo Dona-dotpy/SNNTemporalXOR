@@ -41,9 +41,9 @@ else:
 
 STUDY_NAME = "learning_rate_optimization"
 OPTUNA_DB_PATH = "optimization_results/learning_rate/learning_rate_optimization.db"
-TARGET_TRIALS = 3
-EPOCHS_OPTIMISATION = 20
-CHECKPOINT_INTERVAL = 5
+TARGET_TRIALS = 30
+EPOCHS_OPTIMISATION = 102
+CHECKPOINT_INTERVAL = 10
 
 LR_MIN, LR_MAX = 1e-5, 1e-2
 BETA_MIN, BETA_MAX = 0.80, 0.99

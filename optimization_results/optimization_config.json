@@ -35,5 +35,6 @@
         "kaiming_uniform",
         "kaiming_normal",
         "orthogonal"
-    ]
+    ],
+    "epochs_optimisation": 102
 }
