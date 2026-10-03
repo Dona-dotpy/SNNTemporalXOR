@@ -1,4 +1,20 @@
 {
+    "target_trials": 1000,
+    "epochs_optimisation": 1000,
+    "seed": 1542,
+    "prob_0": 0.3,
+    "prob_1": 0.6,
+    "sign_a": 10,
+    "sign_b": 10,
+    "gap": 30,
+    "readout": 10,
+    "batch_size": 32,
+    "num_samples": 1000,
+    "train_split": 0.8,
+    "beta": 0.95,
+    "input_layer": 3,
+    "output_layer": 2,
+    "loss": "CrossEntropyLoss",
     "lr_min": 1e-05,
     "lr_max": 0.01,
     "hidden_layer_min": 20,
@@ -50,8 +66,6 @@
     "linear_iters_max_frac": 0.3,
     "exp_final_factor_min": 0.001,
     "exp_final_factor_max": 0.8,
-    "cosine_tmax_min_frac": 0.5,
-    "cosine_tmax_max_frac": 1.0,
     "cosine_eta_min_factor_min": 0.0001,
     "cosine_eta_min_factor_max": 0.1,
     "plateau_factor_min": 0.1,
@@ -74,18 +88,17 @@
     "polynomial_iters_max_frac": 1.0,
     "polynomial_power_min": 0.5,
     "polynomial_power_max": 3.0,
-    "losses": [
-        "CrossEntropyLoss",
-        "NLLLoss",
-        "MSELoss"
-    ],
     "initializations": [
         "default",
         "xavier_uniform",
         "xavier_normal",
-        "kaiming_uniform",
-        "kaiming_normal",
-        "orthogonal"
+        "orthogonal",
+        "fluctuation_driven"
     ],
-    "epochs_optimisation": 100
+    "xavier_gain_min": 0.5,
+    "xavier_gain_max": 2.0,
+    "orthogonal_gain_min": 0.5,
+    "orthogonal_gain_max": 2.0,
+    "fluct_xi_min": 1.0,
+    "fluct_xi_max": 3.0
 }

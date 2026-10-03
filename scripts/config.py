@@ -5,7 +5,7 @@ import torch
 SEED = 1542
 
 ## --- Input ---
-PROB_0, PROB_1 = 0.3, 0.6                           # number of spike to represent 0 and 1
+PROB_0, PROB_1 = 0.3, 0.6                           # spike probabilities used to represent 0 and 1
 SIGN_A, SIGN_B = 10, 10                             # number of timesteps of signals A and B of XOR
 GAP, READOUT = 30, 10                               # numers of timesteps of gap and readout
 TOT_TIMESTEPS = SIGN_A + SIGN_B + GAP + READOUT     
@@ -37,10 +37,10 @@ else:
 
 ## --- Hyperparameters optimization ---
 
-STUDY_NAME = "learning_rate_optimization"
-OPTUNA_DB_PATH = "optimization_results/learning_rate/learning_rate_optimization.db"
-TARGET_TRIALS = 3
-EPOCHS_OPTIMISATION = 100
+STUDY_NAME = "hyperparameter_optimization"
+OPTUNA_DB_PATH = f"optimization_results/{STUDY_NAME}.db"
+TARGET_TRIALS = 1000
+EPOCHS_OPTIMISATION = 1000
 CHECKPOINT_INTERVAL = 10
 
 LR_MIN, LR_MAX = 1e-5, 1e-2
@@ -49,9 +49,9 @@ OPTIMIZERS = ["Adam", "AdamW", "SGD"]   # ADAM (lr, weight_decay, beta1, beta2,
 SCHEDULERS = ["None", "StepLR", "MultiStepLR", "ConstantLR", "LinearLR", "ExponentialLR",
                "CosineAnnealingLR", "ReduceLROnPlateau", "CosineAnnealingWarmRestarts",
             "PolynomialLR"]
-LOSSES = [ "CrossEntropyLoss", "NLLLoss", "MSELoss"]
-INITIALIZATIONS = ["default", "xavier_uniform", "xavier_normal",
-                    "kaiming_uniform", "kaiming_normal", "orthogonal"]
+INITIALIZATIONS = ["default", "xavier_uniform",
+    "xavier_normal", "orthogonal", "fluctuation_driven",
+]
 
 # Optimizer search space
 WEIGHT_DECAY_MIN = 1e-8     # minimum penalization applied to large weights
@@ -94,8 +94,6 @@ LINEAR_ITERS_MAX_FRAC = 0.30           # maximum fraction of epochs used for lin
 EXP_FINAL_FACTOR_MIN = 1e-3            # minimum final lr relative to initial lr
 EXP_FINAL_FACTOR_MAX = 0.8             # maximum final lr relative to initial lr
 
-COSINE_TMAX_MIN_FRAC = 0.50            # minimum fraction of epochs for one cosine decay cycle
-COSINE_TMAX_MAX_FRAC = 1.00            # maximum fraction of epochs for one cosine decay cycle
 COSINE_ETA_MIN_FACTOR_MIN = 1e-4       # minimum final lr relative to initial lr
 COSINE_ETA_MIN_FACTOR_MAX = 1e-1       # maximum final lr relative to initial lr
 
@@ -117,3 +115,13 @@ POLYNOMIAL_ITERS_MIN_FRAC = 0.50       # minimum fraction of epochs over which p
 POLYNOMIAL_ITERS_MAX_FRAC = 1.00       # maximum fraction of epochs over which polynomial decay acts
 POLYNOMIAL_POWER_MIN = 0.5             # minimum curvature of polynomial decay
 POLYNOMIAL_POWER_MAX = 3.0             # maximum curvature of polynomial decay
+
+# Initialization search space
+XAVIER_GAIN_MIN = 0.5       # minimum scaling factor applied to Xavier initialized weights
+XAVIER_GAIN_MAX = 2.0       # maximum scaling factor applied to Xavier initialized weights
+
+ORTHOGONAL_GAIN_MIN = 0.5   # minimum scaling factor applied to orthogonal initialized weights
+ORTHOGONAL_GAIN_MAX = 2.0   # maximum scaling factor applied to orthogonal initialized weights
+
+FLUCT_XI_MIN = 1.0          # minimum distance from firing threshold in membrane fluctuation units
+FLUCT_XI_MAX = 3.0          # maximum distance from firing threshold in membrane fluctuation units

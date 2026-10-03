@@ -145,6 +145,29 @@ def get_optimization_config():
     """
 
     return {
+        # Fixed experiment configuration
+        "target_trials": config.TARGET_TRIALS,
+        "epochs_optimisation": config.EPOCHS_OPTIMISATION,
+        "seed": config.SEED,
+
+        "prob_0": config.PROB_0,
+        "prob_1": config.PROB_1,
+        "sign_a": config.SIGN_A,
+        "sign_b": config.SIGN_B,
+        "gap": config.GAP,
+        "readout": config.READOUT,
+
+        "batch_size": config.BATCH_SIZE,
+        "num_samples": config.NUM_SAMPLES,
+        "train_split": config.TRAIN_SPLIT,
+
+        "beta": config.BETA,
+
+        "input_layer": config.INPUT_LAYER,
+        "output_layer": config.OUTPUT_LAYER,
+
+        "loss": "CrossEntropyLoss",
+
         # General search space
         "lr_min": config.LR_MIN,
         "lr_max": config.LR_MAX,
@@ -192,8 +215,6 @@ def get_optimization_config():
         "exp_final_factor_min": config.EXP_FINAL_FACTOR_MIN,
         "exp_final_factor_max": config.EXP_FINAL_FACTOR_MAX,
 
-        "cosine_tmax_min_frac": config.COSINE_TMAX_MIN_FRAC,
-        "cosine_tmax_max_frac": config.COSINE_TMAX_MAX_FRAC,
         "cosine_eta_min_factor_min": config.COSINE_ETA_MIN_FACTOR_MIN,
         "cosine_eta_min_factor_max": config.COSINE_ETA_MIN_FACTOR_MAX,
 
@@ -216,12 +237,17 @@ def get_optimization_config():
         "polynomial_power_min": config.POLYNOMIAL_POWER_MIN,
         "polynomial_power_max": config.POLYNOMIAL_POWER_MAX,
 
-        # Other hyperparameters
-        "losses": config.LOSSES,
+        # Initialization search space
         "initializations": config.INITIALIZATIONS,
 
-        # Training configuration that affects trial comparability
-        "epochs_optimisation": config.EPOCHS_OPTIMISATION,
+        "xavier_gain_min": config.XAVIER_GAIN_MIN,
+        "xavier_gain_max": config.XAVIER_GAIN_MAX,
+
+        "orthogonal_gain_min": config.ORTHOGONAL_GAIN_MIN,
+        "orthogonal_gain_max": config.ORTHOGONAL_GAIN_MAX,
+
+        "fluct_xi_min": config.FLUCT_XI_MIN,
+        "fluct_xi_max": config.FLUCT_XI_MAX,
     }
 
 def archive():
@@ -255,6 +281,11 @@ def archive():
     checkpoints_dir = os.path.join(optimization_dir, "checkpoints")
     if os.path.exists(checkpoints_dir):
         shutil.move(checkpoints_dir, archive_dir)                       # move checkpoint file from checkpoint_dir to archive_dir
+
+    # Move best models
+    best_models_dir = os.path.join(optimization_dir, "best_models")
+    if os.path.exists(best_models_dir):
+        shutil.move(best_models_dir, archive_dir)
 
 # optimizer functions
 
@@ -373,14 +404,10 @@ def define_scheduler(trial, optimizer, lr):
         return torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
 
     elif scheduler_name == "CosineAnnealingLR":
-
-        t_max = trial.suggest_int("cosine_t_max",
-            max(1, int(config.COSINE_TMAX_MIN_FRAC * epochs)), max(1, int(config.COSINE_TMAX_MAX_FRAC * epochs))
-        )
         eta_min_factor = trial.suggest_float( "cosine_eta_min_factor", config.COSINE_ETA_MIN_FACTOR_MIN, 
                             config.COSINE_ETA_MIN_FACTOR_MAX, log=True
         )
-        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=t_max, eta_min=lr * eta_min_factor)
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=lr * eta_min_factor)
 
     elif scheduler_name == "ReduceLROnPlateau":
 
@@ -419,9 +446,97 @@ def define_scheduler(trial, optimizer, lr):
         )
         return torch.optim.lr_scheduler.PolynomialLR(optimizer, total_iters=total_iters, power=power)
 
+def define_initialization(trial, model, input_activity):
+    """
+    Defines and applies the weight initialization for the current Optuna trial.
+
+    Args:
+        trial (optuna.trial.Trial): Current Optuna trial
+        model (torch.nn.Module):    Model whose weights must be initialized
+
+    Returns:
+        None
+    """
+
+    initialization_name = trial.suggest_categorical("initialization", config.INITIALIZATIONS)
+
+    # Keep the standard PyTorch initialization
+    if initialization_name == "default":
+        return
+
+    # Sample initialization-specific parameters
+    if initialization_name in ["xavier_uniform", "xavier_normal"]:
+        gain = trial.suggest_float("xavier_gain",config.XAVIER_GAIN_MIN,config.XAVIER_GAIN_MAX )
+
+    elif initialization_name == "orthogonal":
+        gain = trial.suggest_float("orthogonal_gain", config.ORTHOGONAL_GAIN_MIN, config.ORTHOGONAL_GAIN_MAX)
+
+    elif initialization_name == "fluctuation_driven":
+        # xi tells us how many standard deviation of fluctuations of membrane separate
+        # sverage value from firing threshold
+        xi = trial.suggest_float("fluct_xi", config.FLUCT_XI_MIN, config.FLUCT_XI_MAX)
+
+    # Apply initialization only to Linear layers
+    for i, module in enumerate(model.net):
+        if isinstance(module, torch.nn.Linear):
+            if initialization_name == "xavier_uniform":
+                torch.nn.init.xavier_uniform_(module.weight, gain=gain)
+
+            elif initialization_name == "xavier_normal":
+                torch.nn.init.xavier_normal_(module.weight, gain=gain)
+
+            elif initialization_name == "orthogonal":
+                torch.nn.init.orthogonal_(module.weight, gain=gain)
+
+            elif initialization_name == "fluctuation_driven":
+                lif_layer = model.net[i+1]
+
+                threshold = lif_layer.threshold.item()
+                beta = config.BETA
+                fan_in = module.in_features
+                # Convert the desired threshold distance xi into the target
+                # membrane potential fluctuation standard deviation
+                sigma_u = threshold / xi
+
+                # Squared sum of the discrete LIF decay kernel:
+                # 1 + beta^2 + beta^4 + ... = 1 / (1 - beta^2)
+                epsilon_hat = 1.0 / (1.0 - beta ** 2)
+
+                # Compute the weight standard deviation required to obtain the target
+                # membrane potential fluctuation for the expected input activity
+                weight_std = sigma_u / (
+                    fan_in * input_activity * epsilon_hat
+                ) ** 0.5
+
+                torch.nn.init.normal_(module.weight, mean=0.0,std=weight_std)
+
+            # Use zero bias for explicitly initialized layers
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+
+def compute_input_activity(train_loader):
+    """
+    Computes the average input activity over the training dataset.
+
+    Args:
+        train_loader (torch.utils.data.DataLoader): Training dataloader
+
+    Returns:
+        float: Average probability of an input being active at one time step
+    """
+
+    total_activity = 0.0
+    total_elements = 0
+
+    for data, _ in train_loader:
+        total_activity += data.sum().item()
+        total_elements += data.numel()
+
+    return total_activity / total_elements
+
 # Objective functions
 
-def objective(trial, train_loader, val_loader, start_time, previous_optimization_time):
+def objective(trial, train_loader, val_loader, input_activity, start_time, previous_optimization_time):
     """
     Objective function used by Optuna.
 
@@ -549,6 +664,7 @@ def objective(trial, train_loader, val_loader, start_time, previous_optimization
 
     hidden_layer = trial.suggest_int("hidden_layer", config.HIDDEN_LAYER_MIN, config.HIDDEN_LAYER_MAX)
     model = classes.XORSNN(hidden_layer=hidden_layer).to(config.DEVICE)
+    define_initialization(trial, model, input_activity)
     lr = trial.suggest_float("lr", config.LR_MIN, config.LR_MAX, log=True)                          # we look for a float search in logaritmic scale (big interval)
     optimizer = define_optimizer(trial, model, lr)
     scheduler = define_scheduler(trial, optimizer, lr)
@@ -564,10 +680,10 @@ def objective(trial, train_loader, val_loader, start_time, previous_optimization
                 project="SNNTemporalXOR",                                                               # name of the project we will see on W&B
                 group="hyperparameter_optimization",                                                     # every run will be under the same group to record data
                 name=f"trial-{trial.number}",                                                           
-                config={                                                                                # fixed parameters of the run
+                config={
                     "trial": trial.number,
-                    "lr": lr,
-                    "epochs": config.EPOCHS_OPTIMISATION
+                    "epochs": config.EPOCHS_OPTIMISATION,
+                    **trial.params
                 },
                 reinit="finish_previous"                                                                # magaes the situation in which there is another run active (waits the previuos one to finish)
             )
@@ -582,7 +698,8 @@ def objective(trial, train_loader, val_loader, start_time, previous_optimization
             start_epoch, lowest_loss, checkpoint = checkpoint
 
         # train/validate loop
-        for epoch in range(start_epoch, config.EPOCHS_OPTIMISATION):                                   
+        for epoch in range(start_epoch, config.EPOCHS_OPTIMISATION):
+            current_lr = optimizer.param_groups[0]["lr"]                                   
             avg_loss_train, acc_train = functions.train(model, train_loader, optimizer, loss_fn)        # train function
             avg_loss_val, acc_val = functions.evaluate(model, val_loader, loss_fn)                      # validation function
 
@@ -593,9 +710,22 @@ def objective(trial, train_loader, val_loader, start_time, previous_optimization
                 else:
                     scheduler.step()
 
-            # keep the lowest validation loss reached during training, not only the final one
+            # keep the lowest validation loss reached during training, not only the final one and store best model
             if avg_loss_val < lowest_loss:                                                              
-                lowest_loss = avg_loss_val
+                lowest_loss = avg_loss_val                                                     # store best loss
+                best_model_dir = f"optimization_results/best_models/trial_{trial.number}"
+                os.makedirs(best_model_dir, exist_ok=True)                                     # create best model directory
+                torch.save(                                                                    # store best model
+                        {
+                            "trial_number": trial.number,
+                            "epoch": epoch,
+                            "val_loss": avg_loss_val,
+                            "val_accuracy": acc_val,
+                            "params": trial.params,
+                            "model_state_dict": model.state_dict()
+                        },
+                        os.path.join(best_model_dir, "best_model.pt")
+                    )
 
             # decide which data we have to send to W&B (data necessary to build graphs and metrics inside the app)
             current_sim_time = previous_optimization_time + (time.perf_counter() - start_time)      # total simulation time up to now
@@ -611,7 +741,7 @@ def objective(trial, train_loader, val_loader, start_time, previous_optimization
                 "val_loss": avg_loss_val,
                 "train_accuracy": acc_train,
                 "val_accuracy": acc_val,
-                "lr": optimizer.param_groups[0]["lr"],
+                "lr": current_lr,
                 "sim_time": current_sim_time
             })
             # decide which data the user sees in the inital summary
@@ -619,7 +749,7 @@ def objective(trial, train_loader, val_loader, start_time, previous_optimization
             run.summary["final_val_loss"] = avg_loss_val
             run.summary["final_val_accuracy"] = acc_val
             run.summary["completed_epochs"] = epoch + 1
-            run.summary["final_lr"] = optimizer.param_groups[0]["lr"]
+            run.summary["final_lr"] = current_lr
             run.summary["status"] = "in progress" 
             run.summary["simulation_time"] = sim_time_string                # refresh summary table on W&B
 
@@ -657,6 +787,10 @@ else:
 train_dataset, val_dataset = functions.generate_train_validation_dataset()
 train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
 
+# average activity computation
+input_activity = compute_input_activity(train_loader)
+print(f"Average input activity: {input_activity:.6f}")
+
 # check if a study is already present
 study_exists = os.path.exists(config.OPTUNA_DB_PATH)
 
@@ -686,7 +820,7 @@ else:
 
 # configuration of the sampler and of the pruner
 sampler = optuna.samplers.TPESampler(seed = config.SEED)                        # decides which values oh hyperparameters we have to try in the next trial, in this case it's based on best results of previus trials
-pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=100)    # for a minimization study, prunes trials whose intermediate loss is worse than the median of previous completed trials (1st 5 trials completed interely, never stop before epoch 100)
+pruner = optuna.pruners.MedianPruner(n_startup_trials=20, n_warmup_steps=300)   # for a minimization study, prunes trials whose intermediate loss is worse than the median of previous completed trials (1st 20 trials completed interely, never stop before epoch 300)
 
 # load/create the study to run the optimization alogithm
 study = optuna.create_study(                                       
@@ -706,10 +840,16 @@ optimization_start_time = time.perf_counter()                                   
 remaining_trials = config.TARGET_TRIALS - len(study.trials)
 if remaining_trials > 0:
     study.optimize(                                                     # we pass to the study object what we must minimize and in how many trials
-        lambda trial: objective(trial, train_loader, val_loader, optimization_start_time, previous_optimization_time),       # Optuna expects a function callable as f(trial); we map objective(trial, train_ld, test_ld) -> f(trial)
+        lambda trial: objective(trial, train_loader, val_loader, input_activity,              # Optuna expects a function callable as f(trial); we map objective(trial, train_ld, test_ld) -> f(trial)
+                                optimization_start_time, previous_optimization_time),      
         n_trials=remaining_trials
     )                               
 
 # Values we want to print in the terminal
-print("Best value:", study.best_value)
-print("Best parameters:", study.best_params)
+completed_trials = [trial for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE]
+
+if completed_trials:
+    print("Best value:", study.best_value)
+    print("Best parameters:", study.best_params)
+else:
+    print("No completed trials.")
