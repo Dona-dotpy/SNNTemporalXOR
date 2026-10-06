@@ -85,7 +85,7 @@ def generate_new_random_data():
     """
     return DataLoader(classes.TemporalXORDataset(), batch_size=config.BATCH_SIZE, shuffle=False)
 
-def generate_train_validation_dataset():
+def generate_train_validation_dataset(len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, gap=config.GAP):
     """
     Function that generates the Temporal XOR dataset and splits it into a train
     and a test set, using fixed seeds for reproducibility.
@@ -94,10 +94,11 @@ def generate_train_validation_dataset():
         train_dataset (torch.utils.data.Subset): The subset used for training.
         test_dataset (torch.utils.data.Subset): The subset used for testing.
     """
-    torch.manual_seed(config.SEED)                                          # Seed setup
-    dataset = classes.TemporalXORDataset()                                  # Dataset allocation
-    n_train = int(config.TRAIN_SPLIT * len(dataset))                        # length of train dataset
-    n_test = len(dataset) - n_train                                         # length of test dataset
+    torch.manual_seed(config.SEED)                                                      # Seed setup
+    dataset = classes.TemporalXORDataset(len_sign_a=len_sign_a, len_sign_b=len_sign_b,  # Dataset allocation
+                                len_sign_r=len_sign_r, gap=gap)   
+    n_train = int(config.TRAIN_SPLIT * len(dataset))                                    # length of train dataset
+    n_test = len(dataset) - n_train                                                     # length of test dataset
     train_dataset, test_dataset = random_split(                                                       
         dataset,
         [n_train, n_test],

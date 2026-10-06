@@ -20,7 +20,8 @@ N_ROBUSTNESS_DATASET = 10
 BETA = 0.95
 
 ## --- Neural network ---
-# we put here the best parameters we found from a 50 hour search with the script "optimize_hyperparameters.py"
+
+# we put here the best parameters we found from a 62 hours search with the script "optimize_hyperparameters.py"
 INPUT_LAYER, HIDDEN_LAYER, OUTPUT_LAYER = 3, 100, 2
 LOSS_FN = torch.nn.CrossEntropyLoss
 FLUCT_XI = 1.2234823227754053                      # for fluctionation drive initialization
