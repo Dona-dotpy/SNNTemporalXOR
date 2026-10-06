@@ -23,15 +23,14 @@ functions.plot_inputs_in_terminal(Data[0, :, :])
 
 # model, loss function and optimizer definition
 model = classes.XORSNN().to(config.DEVICE)
-loss_fn = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr = config.LEARNING_RATE)
-
-# Search of the optimal schedulers
-
+loss_fn = config.LOSS_FN()
+functions.fluctuation_driven_initialization(model, train_loader)                        # Initialization
+optimizer = config.OPTIMIZER( model.parameters(), **config.OPTIMIZER_PARAMS)
+scheduler = config.SCHEDULER( optimizer, **config.SCHEDULER_PARAMS)                     # Scheduler
 
 # check if the model with these parameters has already been trained, skip training otherwise
 if not functions.check_trained():
-    functions.train_and_validate(model, train_loader, test_loader, optimizer, loss_fn)
+    functions.train_and_validate(model, train_loader, test_loader, optimizer, loss_fn, scheduler)
 else:
     print(f"\nModel with epochs = {config.EPOCHS} and learning rate = {config.LEARNING_RATE} has already been trained")
 
@@ -39,7 +38,7 @@ else:
     while True:
         choice = input(f"[y/n]  Do you want to train it again?  ").strip().lower()              # get keyboard IN, remove void spaces and make everything lowercase
         if choice == "y":
-            functions.train_and_validate(model, train_loader, test_loader, optimizer, loss_fn)
+            functions.train_and_validate(model, train_loader, test_loader, optimizer, loss_fn, scheduler)
             break
         elif choice == "n":
             # Choice regarding which model we want to load

@@ -124,6 +124,41 @@ def generate_train_validation_dataloader(train_dataset, val_dataset):
     val_dataloader = DataLoader(val_dataset, batch_size=config.BATCH_SIZE, shuffle=False)
     return train_dataloader, val_dataloader
 
+def fluctuation_driven_initialization(model, train_loader):
+    """
+    Applies fluctuation-driven initialization to the Linear layers
+    of the SNN using the average activity of the training dataset.
+
+    Args:
+        model (torch.nn.Module): model to initialize.
+        train_loader (torch.utils.data.DataLoader): training dataloader.
+
+    Returns:
+        None
+    """
+
+    total_activity = 0.0
+    total_elements = 0
+
+    for data, _ in train_loader:
+        total_activity += data.sum().item()
+        total_elements += data.numel()
+
+    input_activity = total_activity / total_elements
+
+    for i, module in enumerate(model.net):
+        if isinstance(module, torch.nn.Linear):
+            lif_layer = model.net[i + 1]
+            threshold = lif_layer.threshold.item()
+            beta = config.BETA
+            fan_in = module.in_features
+            sigma_u = threshold / config.FLUCT_XI
+            epsilon_hat = 1.0 / (1.0 - beta ** 2)
+            weight_std = sigma_u / (fan_in * input_activity * epsilon_hat) ** 0.5
+            torch.nn.init.normal_(module.weight, mean=0.0, std=weight_std)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+
 ## --- TRAIN AND TEST FUNCTIONS ---
 
 def train(model, train_loader, optimizer, loss_fn):
@@ -211,14 +246,14 @@ def evaluate(model, test_loader, loss_fn):
     acc_test = ((total_correct / total_samples) * 100).item()
     return avg_loss_test, acc_test
 
-def train_and_validate(model, train_loader, test_loader, optimizer, loss_fn, sched = config.SCHEDULER):
+def train_and_validate(model, train_loader, val_loader, optimizer, loss_fn, scheduler):
     """
     Executes the complete training and evaluation pipeline for the Temporal XOR SNN.
 
     This function iterates through the number of epochs defined in the configuration,
     alternating between training the model on the rate-coded training set and evaluating 
     it on the test set. It implements a best-model selection strategy by monitoring the 
-    validation accuracy, automatically saving the model weights to disk whenever a new 
+    validation loss, automatically saving the model weights to disk whenever a new 
     performance peak is reached to prevent storing overfitted parameters.
 
     Args:
@@ -227,6 +262,7 @@ def train_and_validate(model, train_loader, test_loader, optimizer, loss_fn, sch
         test_loader (torch.utils.data.DataLoader): DataLoader providing the rate-coded testing samples.
         optimizer (torch.optim.Optimizer): The optimization algorithm used to update the network's weights.
         loss_fn (callable): The criterion used to compute the error gradient.
+        scheduler (torch.optim.lr_scheduler.LRScheduler): Learning-rate scheduler updated once per epoch.
 
     Returns:
         None. The model is modified in-place during optimization, and the optimal weights 
@@ -237,30 +273,21 @@ def train_and_validate(model, train_loader, test_loader, optimizer, loss_fn, sch
     loss_hist_train, acc_hist_train = [], []
     loss_hist_test, acc_hist_test = [], []
 
-    best_accuracy_so_far  = 0.0
+    best_loss_so_far  = float("inf")
     start_time = time.perf_counter()
-
-    # scheduler implementation
-    scheduler = sched(
-        optimizer,              # optimizer we want to optimize
-        mode = "min",           # says that the metrics must be reduced
-        factor = 0.5,           # when reduce the LR, multiply by 0.5
-        patience = 100,         # wait 100 epochs without an improvement before changing the LR
-        min_lr = 0.00001        # minimum value of the LR
-    )
 
     for _ in range(config.EPOCHS):
         avg_loss_train, acc_train = train(model, train_loader, optimizer, loss_fn)
-        avg_loss_test, acc_test = evaluate(model, test_loader, loss_fn)
+        avg_loss_val, acc_val = evaluate(model, val_loader, loss_fn)
         loss_hist_train.append(avg_loss_train), acc_hist_train.append(acc_train)
-        loss_hist_test.append(avg_loss_test), acc_hist_test.append(acc_test)
+        loss_hist_test.append(avg_loss_val), acc_hist_test.append(acc_val)
 
-        scheduler.step(avg_loss_test)
+        scheduler.step()
 
-        # if we get a good accuracy, store the model (this avoid to save the model only at the end of the last epoch
+        # if we get a good loss, store the model (this avoid to save the model only at the end of the last epoch
         # in order to avoid saving parameters if the training is making the model worse)
-        if acc_test > best_accuracy_so_far:
-            best_accuracy_so_far = acc_test
+        if avg_loss_val < best_loss_so_far:
+            best_loss_so_far = avg_loss_val
             store_model(model)
 
     tot_time = time.perf_counter() - start_time
@@ -329,6 +356,7 @@ def test_model_robustness(model, loss_fn):
     print(f"Test time [min:sec]: {minutes}:{seconds:05.2f}\n")
     print("Let's see the loss and accuracy trends ...\n")
     plot_loss_accuracy_in_terminal(loss_test=loss_list, acc_test=acc_list)
+
 
 ## --- SAVE FUNCTIONS ---
 

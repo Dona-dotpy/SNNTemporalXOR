@@ -5,7 +5,7 @@ Main features:
 - Optuna manages trials, sampling, pruning and persistent study storage in SQLite.
 - W&B logs training/validation metrics for each trial and allows remote monitoring.
 - Before resuming a previous optimization, the relevant parameters currently defined
-  in `config.py` are compared with the configuration saved in
+  in `config.py`and in the parameters sections are compared with the configuration saved in
   `optimization_results/optimization_config.json`.
   If any parameter has changed, the differences are shown before deciding whether
   to restart the optimization from scratch.
@@ -38,6 +38,97 @@ import time
 
 import torch
 import classes, functions, config
+
+## --- HYPERPARAMETER OPTIMIZATION PARAMETERS ---
+
+STUDY_NAME = "hyperparameter_optimization"
+OPTUNA_DB_PATH = f"optimization_results/{STUDY_NAME}.db"
+TARGET_TRIALS = 1000
+EPOCHS_OPTIMISATION = 1000
+CHECKPOINT_INTERVAL = 10
+
+LR_MIN, LR_MAX = 1e-5, 1e-2
+HIDDEN_LAYER_MIN, HIDDEN_LAYER_MAX = 20, 100
+OPTIMIZERS = ["Adam", "AdamW", "SGD"]   # ADAM (lr, weight_decay, beta1, beta2, amsgrad) - AdamW (lr, weight_decay, beta1, beta2, amsgrad) - SGD (lr, weight_decay, momentum, nesterov)
+SCHEDULERS = ["None", "StepLR", "MultiStepLR", "ConstantLR", "LinearLR", "ExponentialLR",
+               "CosineAnnealingLR", "ReduceLROnPlateau", "CosineAnnealingWarmRestarts",
+            "PolynomialLR"]
+INITIALIZATIONS = ["default", "xavier_uniform",
+    "xavier_normal", "orthogonal", "fluctuation_driven",
+]
+
+# Optimizer search space
+WEIGHT_DECAY_MIN = 1e-8     # minimum penalization applied to large weights
+WEIGHT_DECAY_MAX = 1e-2     # maximum penalization applied to large weights
+
+BETA1_MIN = 0.80            # minimum memory of past gradients
+BETA1_MAX = 0.99            # maximum memory of past gradients
+
+BETA2_MIN = 0.95            # minimum memory of past squared gradients
+BETA2_MAX = 0.9999          # maximum memory of past squared gradients
+
+MOMENTUM_MIN = 0.0          # minimum contribution of previous SGD updates
+MOMENTUM_MAX = 0.99         # maximum contribution of previous SGD updates
+
+# Scheduler search space
+STEP_SIZE_MIN_FRAC = 0.05              # minimum fraction of epochs between two lr reductions
+STEP_SIZE_MAX_FRAC = 0.50              # maximum fraction of epochs between two lr reductions
+STEP_GAMMA_MIN = 0.1                   # strongest StepLR reduction factor
+STEP_GAMMA_MAX = 0.9                   # weakest StepLR reduction factor
+
+MULTISTEP_PATTERNS = [                  # possible epoch fractions where lr is reduced
+    "30_60",
+    "50_75",
+    "25_50_75",
+    "40_70_90"
+]
+MULTISTEP_GAMMA_MIN = 0.1              # strongest MultiStepLR reduction factor
+MULTISTEP_GAMMA_MAX = 0.9              # weakest MultiStepLR reduction factor
+
+CONSTANT_FACTOR_MIN = 0.05             # minimum initial lr scaling factor
+CONSTANT_FACTOR_MAX = 0.9              # maximum initial lr scaling factor
+CONSTANT_ITERS_MIN_FRAC = 0.01         # minimum fraction of epochs with scaled lr
+CONSTANT_ITERS_MAX_FRAC = 0.20         # maximum fraction of epochs with scaled lr
+
+LINEAR_START_FACTOR_MIN = 0.05         # minimum starting lr factor
+LINEAR_START_FACTOR_MAX = 0.9          # maximum starting lr factor
+LINEAR_ITERS_MIN_FRAC = 0.01           # minimum fraction of epochs used for linear lr change
+LINEAR_ITERS_MAX_FRAC = 0.30           # maximum fraction of epochs used for linear lr change
+
+EXP_FINAL_FACTOR_MIN = 1e-3            # minimum final lr relative to initial lr
+EXP_FINAL_FACTOR_MAX = 0.8             # maximum final lr relative to initial lr
+
+COSINE_ETA_MIN_FACTOR_MIN = 1e-4       # minimum final lr relative to initial lr
+COSINE_ETA_MIN_FACTOR_MAX = 1e-1       # maximum final lr relative to initial lr
+
+PLATEAU_FACTOR_MIN = 0.1               # strongest lr reduction when validation loss stops improving
+PLATEAU_FACTOR_MAX = 0.8               # weakest lr reduction when validation loss stops improving
+PLATEAU_PATIENCE_MIN_FRAC = 0.02       # minimum fraction of epochs to wait before reducing lr
+PLATEAU_PATIENCE_MAX_FRAC = 0.15       # maximum fraction of epochs to wait before reducing lr
+PLATEAU_THRESHOLD_MIN = 1e-5           # minimum improvement considered significant
+PLATEAU_THRESHOLD_MAX = 1e-3           # maximum improvement considered significant
+PLATEAU_COOLDOWN_MAX_FRAC = 0.05       # maximum fraction of epochs to wait after an lr reduction
+
+WARMRESTART_T0_MIN_FRAC = 0.05         # minimum fraction of epochs before the first restart
+WARMRESTART_T0_MAX_FRAC = 0.30         # maximum fraction of epochs before the first restart
+WARMRESTART_T_MULT = [1, 2, 3]         # multiplier applied to restart period after each restart
+WARMRESTART_ETA_MIN_FACTOR_MIN = 1e-4  # minimum lr reached relative to initial lr
+WARMRESTART_ETA_MIN_FACTOR_MAX = 1e-1  # maximum minimum lr relative to initial lr
+
+POLYNOMIAL_ITERS_MIN_FRAC = 0.50       # minimum fraction of epochs over which polynomial decay acts
+POLYNOMIAL_ITERS_MAX_FRAC = 1.00       # maximum fraction of epochs over which polynomial decay acts
+POLYNOMIAL_POWER_MIN = 0.5             # minimum curvature of polynomial decay
+POLYNOMIAL_POWER_MAX = 3.0             # maximum curvature of polynomial decay
+
+# Initialization search space
+XAVIER_GAIN_MIN = 0.5       # minimum scaling factor applied to Xavier initialized weights
+XAVIER_GAIN_MAX = 2.0       # maximum scaling factor applied to Xavier initialized weights
+
+ORTHOGONAL_GAIN_MIN = 0.5   # minimum scaling factor applied to orthogonal initialized weights
+ORTHOGONAL_GAIN_MAX = 2.0   # maximum scaling factor applied to orthogonal initialized weights
+
+FLUCT_XI_MIN = 1.0          # minimum distance from firing threshold in membrane fluctuation units
+FLUCT_XI_MAX = 3.0          # maximum distance from firing threshold in membrane fluctuation units
 
 ## --- FUNCTIONS ---
 
@@ -133,7 +224,7 @@ def save_optimization_config(optimisation_config):
 
 def get_optimization_config():
     """
-    Looks into config.py in order to find the settings of the
+    Looks into parameters section in order to find the settings of the
     hyperparameter search. Useful to detect changes in the search space
     before resuming a previous optimization.
 
@@ -141,13 +232,13 @@ def get_optimization_config():
         None
 
     Returns:
-        dict: Hyperparameter search configuration currently defined in config.py
+        dict: Hyperparameter search configuration currently defined in parameters section
     """
 
     return {
         # Fixed experiment configuration
-        "target_trials": config.TARGET_TRIALS,
-        "epochs_optimisation": config.EPOCHS_OPTIMISATION,
+        "target_trials": TARGET_TRIALS,
+        "epochs_optimisation": EPOCHS_OPTIMISATION,
         "seed": config.SEED,
 
         "prob_0": config.PROB_0,
@@ -169,85 +260,85 @@ def get_optimization_config():
         "loss": "CrossEntropyLoss",
 
         # General search space
-        "lr_min": config.LR_MIN,
-        "lr_max": config.LR_MAX,
+        "lr_min": LR_MIN,
+        "lr_max": LR_MAX,
 
-        "hidden_layer_min": config.HIDDEN_LAYER_MIN,
-        "hidden_layer_max": config.HIDDEN_LAYER_MAX,
+        "hidden_layer_min": HIDDEN_LAYER_MIN,
+        "hidden_layer_max": HIDDEN_LAYER_MAX,
 
         # Optimizer search space
-        "optimizers": config.OPTIMIZERS,
+        "optimizers": OPTIMIZERS,
 
-        "weight_decay_min": config.WEIGHT_DECAY_MIN,
-        "weight_decay_max": config.WEIGHT_DECAY_MAX,
+        "weight_decay_min": WEIGHT_DECAY_MIN,
+        "weight_decay_max": WEIGHT_DECAY_MAX,
 
-        "beta1_min": config.BETA1_MIN,
-        "beta1_max": config.BETA1_MAX,
+        "beta1_min": BETA1_MIN,
+        "beta1_max": BETA1_MAX,
 
-        "beta2_min": config.BETA2_MIN,
-        "beta2_max": config.BETA2_MAX,
+        "beta2_min": BETA2_MIN,
+        "beta2_max": BETA2_MAX,
 
-        "momentum_min": config.MOMENTUM_MIN,
-        "momentum_max": config.MOMENTUM_MAX,
+        "momentum_min": MOMENTUM_MIN,
+        "momentum_max": MOMENTUM_MAX,
 
         # Scheduler search space
-        "schedulers": config.SCHEDULERS,
+        "schedulers": SCHEDULERS,
 
-        "step_size_min_frac": config.STEP_SIZE_MIN_FRAC,
-        "step_size_max_frac": config.STEP_SIZE_MAX_FRAC,
-        "step_gamma_min": config.STEP_GAMMA_MIN,
-        "step_gamma_max": config.STEP_GAMMA_MAX,
+        "step_size_min_frac": STEP_SIZE_MIN_FRAC,
+        "step_size_max_frac": STEP_SIZE_MAX_FRAC,
+        "step_gamma_min": STEP_GAMMA_MIN,
+        "step_gamma_max": STEP_GAMMA_MAX,
 
-        "multistep_patterns": config.MULTISTEP_PATTERNS,
-        "multistep_gamma_min": config.MULTISTEP_GAMMA_MIN,
-        "multistep_gamma_max": config.MULTISTEP_GAMMA_MAX,
+        "multistep_patterns": MULTISTEP_PATTERNS,
+        "multistep_gamma_min": MULTISTEP_GAMMA_MIN,
+        "multistep_gamma_max": MULTISTEP_GAMMA_MAX,
 
-        "constant_factor_min": config.CONSTANT_FACTOR_MIN,
-        "constant_factor_max": config.CONSTANT_FACTOR_MAX,
-        "constant_iters_min_frac": config.CONSTANT_ITERS_MIN_FRAC,
-        "constant_iters_max_frac": config.CONSTANT_ITERS_MAX_FRAC,
+        "constant_factor_min": CONSTANT_FACTOR_MIN,
+        "constant_factor_max": CONSTANT_FACTOR_MAX,
+        "constant_iters_min_frac": CONSTANT_ITERS_MIN_FRAC,
+        "constant_iters_max_frac": CONSTANT_ITERS_MAX_FRAC,
 
-        "linear_start_factor_min": config.LINEAR_START_FACTOR_MIN,
-        "linear_start_factor_max": config.LINEAR_START_FACTOR_MAX,
-        "linear_iters_min_frac": config.LINEAR_ITERS_MIN_FRAC,
-        "linear_iters_max_frac": config.LINEAR_ITERS_MAX_FRAC,
+        "linear_start_factor_min": LINEAR_START_FACTOR_MIN,
+        "linear_start_factor_max": LINEAR_START_FACTOR_MAX,
+        "linear_iters_min_frac": LINEAR_ITERS_MIN_FRAC,
+        "linear_iters_max_frac": LINEAR_ITERS_MAX_FRAC,
 
-        "exp_final_factor_min": config.EXP_FINAL_FACTOR_MIN,
-        "exp_final_factor_max": config.EXP_FINAL_FACTOR_MAX,
+        "exp_final_factor_min": EXP_FINAL_FACTOR_MIN,
+        "exp_final_factor_max": EXP_FINAL_FACTOR_MAX,
 
-        "cosine_eta_min_factor_min": config.COSINE_ETA_MIN_FACTOR_MIN,
-        "cosine_eta_min_factor_max": config.COSINE_ETA_MIN_FACTOR_MAX,
+        "cosine_eta_min_factor_min": COSINE_ETA_MIN_FACTOR_MIN,
+        "cosine_eta_min_factor_max": COSINE_ETA_MIN_FACTOR_MAX,
 
-        "plateau_factor_min": config.PLATEAU_FACTOR_MIN,
-        "plateau_factor_max": config.PLATEAU_FACTOR_MAX,
-        "plateau_patience_min_frac": config.PLATEAU_PATIENCE_MIN_FRAC,
-        "plateau_patience_max_frac": config.PLATEAU_PATIENCE_MAX_FRAC,
-        "plateau_threshold_min": config.PLATEAU_THRESHOLD_MIN,
-        "plateau_threshold_max": config.PLATEAU_THRESHOLD_MAX,
-        "plateau_cooldown_max_frac": config.PLATEAU_COOLDOWN_MAX_FRAC,
+        "plateau_factor_min": PLATEAU_FACTOR_MIN,
+        "plateau_factor_max": PLATEAU_FACTOR_MAX,
+        "plateau_patience_min_frac": PLATEAU_PATIENCE_MIN_FRAC,
+        "plateau_patience_max_frac": PLATEAU_PATIENCE_MAX_FRAC,
+        "plateau_threshold_min": PLATEAU_THRESHOLD_MIN,
+        "plateau_threshold_max": PLATEAU_THRESHOLD_MAX,
+        "plateau_cooldown_max_frac": PLATEAU_COOLDOWN_MAX_FRAC,
 
-        "warmrestart_t0_min_frac": config.WARMRESTART_T0_MIN_FRAC,
-        "warmrestart_t0_max_frac": config.WARMRESTART_T0_MAX_FRAC,
-        "warmrestart_t_mult": config.WARMRESTART_T_MULT,
-        "warmrestart_eta_min_factor_min": config.WARMRESTART_ETA_MIN_FACTOR_MIN,
-        "warmrestart_eta_min_factor_max": config.WARMRESTART_ETA_MIN_FACTOR_MAX,
+        "warmrestart_t0_min_frac": WARMRESTART_T0_MIN_FRAC,
+        "warmrestart_t0_max_frac": WARMRESTART_T0_MAX_FRAC,
+        "warmrestart_t_mult": WARMRESTART_T_MULT,
+        "warmrestart_eta_min_factor_min": WARMRESTART_ETA_MIN_FACTOR_MIN,
+        "warmrestart_eta_min_factor_max": WARMRESTART_ETA_MIN_FACTOR_MAX,
 
-        "polynomial_iters_min_frac": config.POLYNOMIAL_ITERS_MIN_FRAC,
-        "polynomial_iters_max_frac": config.POLYNOMIAL_ITERS_MAX_FRAC,
-        "polynomial_power_min": config.POLYNOMIAL_POWER_MIN,
-        "polynomial_power_max": config.POLYNOMIAL_POWER_MAX,
+        "polynomial_iters_min_frac": POLYNOMIAL_ITERS_MIN_FRAC,
+        "polynomial_iters_max_frac": POLYNOMIAL_ITERS_MAX_FRAC,
+        "polynomial_power_min": POLYNOMIAL_POWER_MIN,
+        "polynomial_power_max": POLYNOMIAL_POWER_MAX,
 
         # Initialization search space
-        "initializations": config.INITIALIZATIONS,
+        "initializations": INITIALIZATIONS,
 
-        "xavier_gain_min": config.XAVIER_GAIN_MIN,
-        "xavier_gain_max": config.XAVIER_GAIN_MAX,
+        "xavier_gain_min": XAVIER_GAIN_MIN,
+        "xavier_gain_max": XAVIER_GAIN_MAX,
 
-        "orthogonal_gain_min": config.ORTHOGONAL_GAIN_MIN,
-        "orthogonal_gain_max": config.ORTHOGONAL_GAIN_MAX,
+        "orthogonal_gain_min": ORTHOGONAL_GAIN_MIN,
+        "orthogonal_gain_max": ORTHOGONAL_GAIN_MAX,
 
-        "fluct_xi_min": config.FLUCT_XI_MIN,
-        "fluct_xi_max": config.FLUCT_XI_MAX,
+        "fluct_xi_min": FLUCT_XI_MIN,
+        "fluct_xi_max": FLUCT_XI_MAX,
     }
 
 def archive():
@@ -269,8 +360,8 @@ def archive():
     os.makedirs(archive_dir, exist_ok = True)
 
     # check if the file path of the database exists and moves the database
-    if os.path.exists(config.OPTUNA_DB_PATH):
-        shutil.move(config.OPTUNA_DB_PATH, archive_dir)                 # move database from config.OPTUNA_DB_PATH to archive_dir     
+    if os.path.exists(OPTUNA_DB_PATH):
+        shutil.move(OPTUNA_DB_PATH, archive_dir)                 # move database from OPTUNA_DB_PATH to archive_dir     
 
     # check if the file path of the configuration file exists and moves it 
     config_path= os.path.join(optimization_dir, "optimization_config.json")
@@ -302,19 +393,19 @@ def define_optimizer(trial, model, lr):
         torch.optim.Optimizer:      Optimizer generated with the sampled parameters
     """
 
-    optimizer_name = trial.suggest_categorical("optimizer", config.OPTIMIZERS)
+    optimizer_name = trial.suggest_categorical("optimizer", OPTIMIZERS)
     use_weight_decay = trial.suggest_categorical("use_weight_decay", [True, False])
     if use_weight_decay:
-        weight_decay = trial.suggest_float("weight_decay", config.WEIGHT_DECAY_MIN, config.WEIGHT_DECAY_MAX, log = True)
+        weight_decay = trial.suggest_float("weight_decay", WEIGHT_DECAY_MIN, WEIGHT_DECAY_MAX, log = True)
     else:
         weight_decay = 0.0
     if optimizer_name in ["Adam", "AdamW"]:
-        beta1 = trial.suggest_float("beta1", config.BETA1_MIN, config.BETA1_MAX)
-        beta2 = trial.suggest_float("beta2", config.BETA2_MIN, config.BETA2_MAX)
+        beta1 = trial.suggest_float("beta1", BETA1_MIN, BETA1_MAX)
+        beta2 = trial.suggest_float("beta2", BETA2_MIN, BETA2_MAX)
         ams_grad = trial.suggest_categorical("amsgrad", [True, False])
         momentum, nesterov = None, None
     elif optimizer_name == "SGD":
-        momentum = trial.suggest_float("momentum", config.MOMENTUM_MIN, config.MOMENTUM_MAX)
+        momentum = trial.suggest_float("momentum", MOMENTUM_MIN, MOMENTUM_MAX)
         if momentum > 0:
             nesterov = trial.suggest_categorical("nesterov", [True, False])
         else:
@@ -353,96 +444,96 @@ def define_scheduler(trial, optimizer, lr):
 
     scheduler_name = trial.suggest_categorical(
         "scheduler",
-        config.SCHEDULERS
+        SCHEDULERS
     )
 
-    epochs = config.EPOCHS_OPTIMISATION
+    epochs = EPOCHS_OPTIMISATION
 
     if scheduler_name == "None":
         return None
 
     elif scheduler_name == "StepLR":
         step_size = trial.suggest_int( "step_step_size", 
-            max(1, int(config.STEP_SIZE_MIN_FRAC * epochs)), max(1, int(config.STEP_SIZE_MAX_FRAC * epochs))
+            max(1, int(STEP_SIZE_MIN_FRAC * epochs)), max(1, int(STEP_SIZE_MAX_FRAC * epochs))
         )
-        gamma = trial.suggest_float("step_gamma", config.STEP_GAMMA_MIN, config.STEP_GAMMA_MAX)
+        gamma = trial.suggest_float("step_gamma", STEP_GAMMA_MIN, STEP_GAMMA_MAX)
         return torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size,gamma=gamma)
 
     elif scheduler_name == "MultiStepLR":
-        pattern = trial.suggest_categorical("multistep_pattern",config.MULTISTEP_PATTERNS)
+        pattern = trial.suggest_categorical("multistep_pattern",MULTISTEP_PATTERNS)
         patterns = {"30_60": [0.30, 0.60], "50_75": [0.50, 0.75],
             "25_50_75": [0.25, 0.50, 0.75], "40_70_90": [0.40, 0.70, 0.90]
         }
         milestones = [int(epochs * fraction) for fraction in patterns[pattern]]
-        gamma = trial.suggest_float("multistep_gamma", config.MULTISTEP_GAMMA_MIN, config.MULTISTEP_GAMMA_MAX)
+        gamma = trial.suggest_float("multistep_gamma", MULTISTEP_GAMMA_MIN, MULTISTEP_GAMMA_MAX)
         return torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones,gamma=gamma)
 
     elif scheduler_name == "ConstantLR":
 
-        factor = trial.suggest_float("constant_factor", config.CONSTANT_FACTOR_MIN, config.CONSTANT_FACTOR_MAX)
+        factor = trial.suggest_float("constant_factor", CONSTANT_FACTOR_MIN, CONSTANT_FACTOR_MAX)
         total_iters = trial.suggest_int( "constant_total_iters", 
-                max(1, int(config.CONSTANT_ITERS_MIN_FRAC * epochs)),max(1, int(config.CONSTANT_ITERS_MAX_FRAC * epochs))
+                max(1, int(CONSTANT_ITERS_MIN_FRAC * epochs)),max(1, int(CONSTANT_ITERS_MAX_FRAC * epochs))
         )
         return torch.optim.lr_scheduler.ConstantLR(optimizer, factor=factor,total_iters=total_iters)
 
     elif scheduler_name == "LinearLR":
 
         start_factor = trial.suggest_float("linear_start_factor",
-            config.LINEAR_START_FACTOR_MIN, config.LINEAR_START_FACTOR_MAX
+            LINEAR_START_FACTOR_MIN, LINEAR_START_FACTOR_MAX
         )
         total_iters = trial.suggest_int("linear_total_iters",
-            max(1, int(config.LINEAR_ITERS_MIN_FRAC * epochs)), max(1, int(config.LINEAR_ITERS_MAX_FRAC * epochs))
+            max(1, int(LINEAR_ITERS_MIN_FRAC * epochs)), max(1, int(LINEAR_ITERS_MAX_FRAC * epochs))
         )
         return torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=start_factor, end_factor=1.0, total_iters=total_iters)
 
     elif scheduler_name == "ExponentialLR":
 
-        final_factor = trial.suggest_float("exponential_final_factor", config.EXP_FINAL_FACTOR_MIN,
-            config.EXP_FINAL_FACTOR_MAX, log=True
+        final_factor = trial.suggest_float("exponential_final_factor", EXP_FINAL_FACTOR_MIN,
+                EXP_FINAL_FACTOR_MAX, log=True
         )
         gamma = final_factor ** (1 / epochs)
         return torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
 
     elif scheduler_name == "CosineAnnealingLR":
-        eta_min_factor = trial.suggest_float( "cosine_eta_min_factor", config.COSINE_ETA_MIN_FACTOR_MIN, 
-                            config.COSINE_ETA_MIN_FACTOR_MAX, log=True
+        eta_min_factor = trial.suggest_float( "cosine_eta_min_factor", COSINE_ETA_MIN_FACTOR_MIN, 
+                            COSINE_ETA_MIN_FACTOR_MAX, log=True
         )
         return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=lr * eta_min_factor)
 
     elif scheduler_name == "ReduceLROnPlateau":
 
         factor = trial.suggest_float("plateau_factor",
-            config.PLATEAU_FACTOR_MIN, config.PLATEAU_FACTOR_MAX
+            PLATEAU_FACTOR_MIN, PLATEAU_FACTOR_MAX
         )
         patience = trial.suggest_int( "plateau_patience",
-            max(1, int(config.PLATEAU_PATIENCE_MIN_FRAC * epochs)), max(1, int(config.PLATEAU_PATIENCE_MAX_FRAC * epochs))
+            max(1, int(PLATEAU_PATIENCE_MIN_FRAC * epochs)), max(1, int(PLATEAU_PATIENCE_MAX_FRAC * epochs))
         )
-        threshold = trial.suggest_float("plateau_threshold", config.PLATEAU_THRESHOLD_MIN,
-            config.PLATEAU_THRESHOLD_MAX, log=True
+        threshold = trial.suggest_float("plateau_threshold", PLATEAU_THRESHOLD_MIN,
+            PLATEAU_THRESHOLD_MAX, log=True
         )
         cooldown = trial.suggest_int("plateau_cooldown",
-            0, max(1, int(config.PLATEAU_COOLDOWN_MAX_FRAC * epochs))
+            0, max(1, int(PLATEAU_COOLDOWN_MAX_FRAC * epochs))
         )
 
         return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=factor, patience=patience, threshold=threshold, cooldown=cooldown)
 
     elif scheduler_name == "CosineAnnealingWarmRestarts":
-        t_0 = trial.suggest_int("warmrestart_t0", max(1, int(config.WARMRESTART_T0_MIN_FRAC * epochs)),
-            max(1, int(config.WARMRESTART_T0_MAX_FRAC * epochs))
+        t_0 = trial.suggest_int("warmrestart_t0", max(1, int(WARMRESTART_T0_MIN_FRAC * epochs)),
+            max(1, int(WARMRESTART_T0_MAX_FRAC * epochs))
         )
-        t_mult = trial.suggest_categorical("warmrestart_t_mult", config.WARMRESTART_T_MULT)
-        eta_min_factor = trial.suggest_float("warmrestart_eta_min_factor", config.WARMRESTART_ETA_MIN_FACTOR_MIN,
-            config.WARMRESTART_ETA_MIN_FACTOR_MAX, log=True
+        t_mult = trial.suggest_categorical("warmrestart_t_mult", WARMRESTART_T_MULT)
+        eta_min_factor = trial.suggest_float("warmrestart_eta_min_factor", WARMRESTART_ETA_MIN_FACTOR_MIN,
+            WARMRESTART_ETA_MIN_FACTOR_MAX, log=True
         )
         return torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=t_0, T_mult=t_mult, eta_min=lr * eta_min_factor)
 
     elif scheduler_name == "PolynomialLR":
 
-        total_iters = trial.suggest_int("polynomial_total_iters", max(1, int(config.POLYNOMIAL_ITERS_MIN_FRAC * epochs)),
-            max(1, int(config.POLYNOMIAL_ITERS_MAX_FRAC * epochs))
+        total_iters = trial.suggest_int("polynomial_total_iters", max(1, int(POLYNOMIAL_ITERS_MIN_FRAC * epochs)),
+            max(1, int(POLYNOMIAL_ITERS_MAX_FRAC * epochs))
         )
         power = trial.suggest_float("polynomial_power",
-            config.POLYNOMIAL_POWER_MIN, config.POLYNOMIAL_POWER_MAX
+            POLYNOMIAL_POWER_MIN, POLYNOMIAL_POWER_MAX
         )
         return torch.optim.lr_scheduler.PolynomialLR(optimizer, total_iters=total_iters, power=power)
 
@@ -458,7 +549,7 @@ def define_initialization(trial, model, input_activity):
         None
     """
 
-    initialization_name = trial.suggest_categorical("initialization", config.INITIALIZATIONS)
+    initialization_name = trial.suggest_categorical("initialization", INITIALIZATIONS)
 
     # Keep the standard PyTorch initialization
     if initialization_name == "default":
@@ -466,15 +557,15 @@ def define_initialization(trial, model, input_activity):
 
     # Sample initialization-specific parameters
     if initialization_name in ["xavier_uniform", "xavier_normal"]:
-        gain = trial.suggest_float("xavier_gain",config.XAVIER_GAIN_MIN,config.XAVIER_GAIN_MAX )
+        gain = trial.suggest_float("xavier_gain",XAVIER_GAIN_MIN,XAVIER_GAIN_MAX )
 
     elif initialization_name == "orthogonal":
-        gain = trial.suggest_float("orthogonal_gain", config.ORTHOGONAL_GAIN_MIN, config.ORTHOGONAL_GAIN_MAX)
+        gain = trial.suggest_float("orthogonal_gain", ORTHOGONAL_GAIN_MIN, ORTHOGONAL_GAIN_MAX)
 
     elif initialization_name == "fluctuation_driven":
         # xi tells us how many standard deviation of fluctuations of membrane separate
         # sverage value from firing threshold
-        xi = trial.suggest_float("fluct_xi", config.FLUCT_XI_MIN, config.FLUCT_XI_MAX)
+        xi = trial.suggest_float("fluct_xi", FLUCT_XI_MIN, FLUCT_XI_MAX)
 
     # Apply initialization only to Linear layers
     for i, module in enumerate(model.net):
@@ -662,10 +753,10 @@ def objective(trial, train_loader, val_loader, input_activity, start_time, previ
     # hyperparameter sampling and
     # optimizer parameters search -> we don't look only to "which optimizer" but to "which optimizer and with which parameters"!
 
-    hidden_layer = trial.suggest_int("hidden_layer", config.HIDDEN_LAYER_MIN, config.HIDDEN_LAYER_MAX)
+    hidden_layer = trial.suggest_int("hidden_layer", HIDDEN_LAYER_MIN, HIDDEN_LAYER_MAX)
     model = classes.XORSNN(hidden_layer=hidden_layer).to(config.DEVICE)
     define_initialization(trial, model, input_activity)
-    lr = trial.suggest_float("lr", config.LR_MIN, config.LR_MAX, log=True)                          # we look for a float search in logaritmic scale (big interval)
+    lr = trial.suggest_float("lr", LR_MIN, LR_MAX, log=True)                          # we look for a float search in logaritmic scale (big interval)
     optimizer = define_optimizer(trial, model, lr)
     scheduler = define_scheduler(trial, optimizer, lr)
     loss_fn = torch.nn.CrossEntropyLoss()
@@ -682,7 +773,7 @@ def objective(trial, train_loader, val_loader, input_activity, start_time, previ
                 name=f"trial-{trial.number}",                                                           
                 config={
                     "trial": trial.number,
-                    "epochs": config.EPOCHS_OPTIMISATION,
+                    "epochs": EPOCHS_OPTIMISATION,
                     **trial.params
                 },
                 reinit="finish_previous"                                                                # magaes the situation in which there is another run active (waits the previuos one to finish)
@@ -698,7 +789,7 @@ def objective(trial, train_loader, val_loader, input_activity, start_time, previ
             start_epoch, lowest_loss, checkpoint = checkpoint
 
         # train/validate loop
-        for epoch in range(start_epoch, config.EPOCHS_OPTIMISATION):
+        for epoch in range(start_epoch, EPOCHS_OPTIMISATION):
             current_lr = optimizer.param_groups[0]["lr"]                                   
             avg_loss_train, acc_train = functions.train(model, train_loader, optimizer, loss_fn)        # train function
             avg_loss_val, acc_val = functions.evaluate(model, val_loader, loss_fn)                      # validation function
@@ -753,8 +844,8 @@ def objective(trial, train_loader, val_loader, input_activity, start_time, previ
             run.summary["status"] = "in progress" 
             run.summary["simulation_time"] = sim_time_string                # refresh summary table on W&B
 
-            # save the checkpoint every config.CHECKPOINT_INTERVAL epochs
-            if (epoch + 1) % config.CHECKPOINT_INTERVAL == 0:
+            # save the checkpoint every CHECKPOINT_INTERVAL epochs
+            if (epoch + 1) % CHECKPOINT_INTERVAL == 0:
                 save_checkpoint(trial, epoch, model, optimizer, scheduler, lowest_loss)
 
             trial.report(avg_loss_val, step=epoch)                          # reports the current validation loss to Optuna study for this epoch  
@@ -774,82 +865,83 @@ def objective(trial, train_loader, val_loader, input_activity, start_time, previ
 
 ## --- MAIN CODE ---
 
-# get optimization configurations: current and saved ones
-current_config = get_optimization_config()
-config_path = "optimization_results/optimization_config.json"
-if os.path.exists(config_path):
-    with open("optimization_results/optimization_config.json", "r") as file:
-        saved_config = json.load(file)
-else:
-    saved_config = None
+if __name__ == "__main__":
+    # get optimization configurations: current and saved ones
+    current_config = get_optimization_config()
+    config_path = "optimization_results/optimization_config.json"
+    if os.path.exists(config_path):
+        with open("optimization_results/optimization_config.json", "r") as file:
+            saved_config = json.load(file)
+    else:
+        saved_config = None
 
-# generate train and validation dataset deterministaticalli
-train_dataset, val_dataset = functions.generate_train_validation_dataset()
-train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
+    # generate train and validation dataset deterministaticalli
+    train_dataset, val_dataset = functions.generate_train_validation_dataset()
+    train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
 
-# average activity computation
-input_activity = compute_input_activity(train_loader)
-print(f"Average input activity: {input_activity:.6f}")
+    # average activity computation
+    input_activity = compute_input_activity(train_loader)
+    print(f"Average input activity: {input_activity:.6f}")
 
-# check if a study is already present
-study_exists = os.path.exists(config.OPTUNA_DB_PATH)
+    # check if a study is already present
+    study_exists = os.path.exists(OPTUNA_DB_PATH)
 
-if not study_exists:
-    print("\nNo optimization present, let's start a new one from scratch...\n")
-    save_optimization_config(current_config)                                        # config.py script could have been changed
+    if not study_exists:
+        print("\nNo optimization present, let's start a new one from scratch...\n")
+        save_optimization_config(current_config)                                        # parameters could have been changed
 
-elif current_config == saved_config:                                                # No change in the configuration file
-    while True:
-        selection = input("\n[y/n] Previous optimization found, do you want to continue?\n").strip().lower()
-        if selection == "y":
-            break
-        elif selection == "n":
-            sys.exit()                                                              # end the the execution of the script
-        print("Input not recognized. Please insert 'y' for yes and 'n' for no")
+    elif current_config == saved_config:                                                # No change in the configuration file
+        while True:
+            selection = input("\n[y/n] Previous optimization found, do you want to continue?\n").strip().lower()
+            if selection == "y":
+                break
+            elif selection == "n":
+                sys.exit()                                                              # end the the execution of the script
+            print("Input not recognized. Please insert 'y' for yes and 'n' for no")
 
-else:
-    while True:
-        selection = input("\n[y/n] Configurations changed, do you want to start a new optimization?\n").strip().lower()
-        if selection == "y":
-            archive()
-            save_optimization_config(current_config)
-            break
-        elif selection == "n":
-            sys.exit()
-        print("Input not recognized. Please insert 'y' for yes and 'n' for no")
+    else:
+        while True:
+            selection = input("\n[y/n] Configurations changed, do you want to start a new optimization?\n").strip().lower()
+            if selection == "y":
+                archive()
+                save_optimization_config(current_config)
+                break
+            elif selection == "n":
+                sys.exit()
+            print("Input not recognized. Please insert 'y' for yes and 'n' for no")
 
-# configuration of the sampler and of the pruner
-sampler = optuna.samplers.TPESampler(seed = config.SEED)                        # decides which values oh hyperparameters we have to try in the next trial, in this case it's based on best results of previus trials
-pruner = optuna.pruners.MedianPruner(n_startup_trials=20, n_warmup_steps=300)   # for a minimization study, prunes trials whose intermediate loss is worse than the median of previous completed trials (1st 20 trials completed interely, never stop before epoch 300)
+    # configuration of the sampler and of the pruner
+    sampler = optuna.samplers.TPESampler(seed = config.SEED)                        # decides which values oh hyperparameters we have to try in the next trial, in this case it's based on best results of previus trials
+    pruner = optuna.pruners.MedianPruner(n_startup_trials=20, n_warmup_steps=300)   # for a minimization study, prunes trials whose intermediate loss is worse than the median of previous completed trials (1st 20 trials completed interely, never stop before epoch 300)
 
-# load/create the study to run the optimization alogithm
-study = optuna.create_study(                                       
-    study_name = config.STUDY_NAME,
-    direction="minimize",                               # task required
-    sampler = sampler,
-    pruner = pruner,
-    storage=f"sqlite:///{config.OPTUNA_DB_PATH}",       # storage location
-    load_if_exists=True                                 # if a study is already present, do now create a new one but load the existing one
-    )
+    # load/create the study to run the optimization alogithm
+    study = optuna.create_study(                                       
+        study_name = STUDY_NAME,
+        direction="minimize",                               # task required
+        sampler = sampler,
+        pruner = pruner,
+        storage=f"sqlite:///{OPTUNA_DB_PATH}",              # storage location
+        load_if_exists=True                                 # if a study is already present, do now create a new one but load the existing one
+        )
 
-# initialize time to the initial value
-previous_optimization_time = study.user_attrs.get("optimization_time", 0.0)     # obtain optimization time from previuos optimization
-optimization_start_time = time.perf_counter()                                   # reference to time from time library
+    # initialize time to the initial value
+    previous_optimization_time = study.user_attrs.get("optimization_time", 0.0)     # obtain optimization time from previuos optimization
+    optimization_start_time = time.perf_counter()                                   # reference to time from time library
 
-# Compute the trial reamining before the end of the study (useful when we load a checkpoint)
-remaining_trials = config.TARGET_TRIALS - len(study.trials)
-if remaining_trials > 0:
-    study.optimize(                                                     # we pass to the study object what we must minimize and in how many trials
-        lambda trial: objective(trial, train_loader, val_loader, input_activity,              # Optuna expects a function callable as f(trial); we map objective(trial, train_ld, test_ld) -> f(trial)
-                                optimization_start_time, previous_optimization_time),      
-        n_trials=remaining_trials
-    )                               
+    # Compute the trial reamining before the end of the study (useful when we load a checkpoint)
+    remaining_trials = TARGET_TRIALS - len(study.trials)
+    if remaining_trials > 0:
+        study.optimize(                                                     # we pass to the study object what we must minimize and in how many trials
+            lambda trial: objective(trial, train_loader, val_loader, input_activity,              # Optuna expects a function callable as f(trial); we map objective(trial, train_ld, test_ld) -> f(trial)
+                                    optimization_start_time, previous_optimization_time),      
+            n_trials=remaining_trials
+        )                               
 
-# Values we want to print in the terminal
-completed_trials = [trial for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE]
+    # Values we want to print in the terminal
+    completed_trials = [trial for trial in study.trials if trial.state == optuna.trial.TrialState.COMPLETE]
 
-if completed_trials:
-    print("Best value:", study.best_value)
-    print("Best parameters:", study.best_params)
-else:
-    print("No completed trials.")
+    if completed_trials:
+        print("Best value:", study.best_value)
+        print("Best parameters:", study.best_params)
+    else:
+        print("No completed trials.")
