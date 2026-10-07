@@ -5,10 +5,6 @@
       <stop offset="0%" stop-color="#161b22"/>
       <stop offset="100%" stop-color="#0e131a"/>
     </linearGradient>
-    <linearGradient id="activeGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#1f6feb"/>
-      <stop offset="100%" stop-color="#388bfd"/>
-    </linearGradient>
     <linearGradient id="nodeGradIn" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#238636"/>
       <stop offset="100%" stop-color="#2ea043"/>
@@ -25,25 +21,12 @@
     <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
       <path d="M 0 1 L 10 5 L 0 9 z" fill="#58a6ff"/>
     </marker>
-    <marker id="arrowMuted" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-      <path d="M 0 1 L 10 5 L 0 9 z" fill="#8b949e"/>
-    </marker>
-    <marker id="arrowSyn" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
-      <path d="M 0 1 L 10 5 L 0 9 z" fill="#30363d"/>
-    </marker>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="2" result="blur" />
-      <feMerge>
-        <feMergeNode in="blur" />
-        <feMergeNode in="SourceGraphic" />
-      </feMerge>
-    </filter>
   </defs>
 
   <!-- ==================== 1. TEMPORAL INPUT SIGNALS ==================== -->
   <g transform="translate(30, 20)">
     <rect width="900" height="210" rx="10" fill="url(#boxGrad)" stroke="#30363d" stroke-width="1.5"/>
-    <text x="25" y="30" fill="#58a6ff" font-size="14" font-weight="700" letter-spacing="0.5">1. TEMPORAL RATE-CODED INPUT TIMELINE (Example: Input A = 0, Input B = 1)</text>
+    <text x="25" y="28" fill="#58a6ff" font-size="14" font-weight="700" letter-spacing="0.5">1. TEMPORAL RATE-CODED INPUT TIMELINE (Example: Input A = 0, Input B = 1)</text>
     
     <!-- Time Axis Guide -->
     <line x1="160" y1="185" x2="860" y2="185" stroke="#30363d" stroke-width="1.5"/>
@@ -58,44 +41,57 @@
     <text x="850" y="200" fill="#8b949e" font-size="11" text-anchor="middle">t = 60</text>
 
     <!-- Channel A -->
-    <text x="35" y="68" fill="#e6edf3" font-size="13" font-weight="600">Neuron A</text>
-    <text x="35" y="84" fill="#7ee787" font-size="11">Bit 0 (3 spikes)</text>
+    <text x="35" y="66" fill="#e6edf3" font-size="13" font-weight="600">Neuron A</text>
+    <text x="35" y="82" fill="#7ee787" font-size="11">Bit 0 (3 spikes)</text>
     <line x1="160" y1="70" x2="860" y2="70" stroke="#21262d" stroke-width="2"/>
-    <!-- Signal A window: 160 to 275 (10 timesteps) -->
-    <rect x="160" y="50" width="115" height="38" fill="#238636" fill-opacity="0.1" rx="4" stroke="#238636" stroke-dasharray="3,3" stroke-width="1"/>
-    <!-- 3 spikes -->
-    <line x1="190" y1="52" x2="190" y2="86" stroke="#7ee787" stroke-width="3" filter="url(#glow)"/>
-    <line x1="225" y1="52" x2="225" y2="86" stroke="#7ee787" stroke-width="3" filter="url(#glow)"/>
-    <line x1="255" y1="52" x2="255" y2="86" stroke="#7ee787" stroke-width="3" filter="url(#glow)"/>
+    <!-- Signal A active box -->
+    <rect x="160" y="48" width="115" height="44" fill="#238636" fill-opacity="0.15" rx="5" stroke="#2ea043" stroke-width="1.5"/>
+    <!-- 3 Spikes in Channel A with visible rounded caps and lines -->
+    <line x1="188" y1="52" x2="188" y2="88" stroke="#3fb950" stroke-width="3.5" stroke-linecap="round"/>
+    <circle cx="188" cy="52" r="3.5" fill="#7ee787"/>
+    <line x1="222" y1="52" x2="222" y2="88" stroke="#3fb950" stroke-width="3.5" stroke-linecap="round"/>
+    <circle cx="222" cy="52" r="3.5" fill="#7ee787"/>
+    <line x1="256" y1="52" x2="256" y2="88" stroke="#3fb950" stroke-width="3.5" stroke-linecap="round"/>
+    <circle cx="256" cy="52" r="3.5" fill="#7ee787"/>
 
     <!-- Channel B -->
-    <text x="35" y="118" fill="#e6edf3" font-size="13" font-weight="600">Neuron B</text>
-    <text x="35" y="134" fill="#a371f7" font-size="11">Bit 1 (6 spikes)</text>
+    <text x="35" y="116" fill="#e6edf3" font-size="13" font-weight="600">Neuron B</text>
+    <text x="35" y="132" fill="#d2a8ff" font-size="11">Bit 1 (6 spikes)</text>
     <line x1="160" y1="120" x2="860" y2="120" stroke="#21262d" stroke-width="2"/>
-    <!-- Signal B window: 620 to 735 (10 timesteps) -->
-    <rect x="620" y="100" width="115" height="38" fill="#8957e5" fill-opacity="0.1" rx="4" stroke="#8957e5" stroke-dasharray="3,3" stroke-width="1"/>
-    <!-- 6 spikes -->
-    <line x1="635" y1="102" x2="635" y2="136" stroke="#d2a8ff" stroke-width="2.5" filter="url(#glow)"/>
-    <line x1="652" y1="102" x2="652" y2="136" stroke="#d2a8ff" stroke-width="2.5" filter="url(#glow)"/>
-    <line x1="670" y1="102" x2="670" y2="136" stroke="#d2a8ff" stroke-width="2.5" filter="url(#glow)"/>
-    <line x1="688" y1="102" x2="688" y2="136" stroke="#d2a8ff" stroke-width="2.5" filter="url(#glow)"/>
-    <line x1="706" y1="102" x2="706" y2="136" stroke="#d2a8ff" stroke-width="2.5" filter="url(#glow)"/>
-    <line x1="724" y1="102" x2="724" y2="136" stroke="#d2a8ff" stroke-width="2.5" filter="url(#glow)"/>
+    <!-- Signal B active box -->
+    <rect x="620" y="98" width="115" height="44" fill="#8957e5" fill-opacity="0.15" rx="5" stroke="#a371f7" stroke-width="1.5"/>
+    <!-- 6 Spikes in Channel B with visible rounded caps and lines -->
+    <line x1="635" y1="102" x2="635" y2="138" stroke="#a371f7" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="635" cy="102" r="3" fill="#d2a8ff"/>
+    <line x1="653" y1="102" x2="653" y2="138" stroke="#a371f7" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="653" cy="102" r="3" fill="#d2a8ff"/>
+    <line x1="671" y1="102" x2="671" y2="138" stroke="#a371f7" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="671" cy="102" r="3" fill="#d2a8ff"/>
+    <line x1="689" y1="102" x2="689" y2="138" stroke="#a371f7" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="689" cy="102" r="3" fill="#d2a8ff"/>
+    <line x1="707" y1="102" x2="707" y2="138" stroke="#a371f7" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="707" cy="102" r="3" fill="#d2a8ff"/>
+    <line x1="724" y1="102" x2="724" y2="138" stroke="#a371f7" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="724" cy="102" r="3" fill="#d2a8ff"/>
 
     <!-- Channel Readout -->
-    <text x="35" y="166" fill="#e6edf3" font-size="13" font-weight="600">Readout (R)</text>
-    <text x="35" y="180" fill="#f0883e" font-size="11">10 driving pulses</text>
+    <text x="35" y="164" fill="#e6edf3" font-size="13" font-weight="600">Readout (R)</text>
+    <text x="35" y="179" fill="#f0883e" font-size="11">10 driving pulses</text>
     <line x1="160" y1="168" x2="860" y2="168" stroke="#21262d" stroke-width="2"/>
-    <!-- Readout window: 735 to 850 (10 timesteps continuous pulse) -->
-    <rect x="735" y="150" width="115" height="32" fill="#d29922" fill-opacity="0.15" rx="3" stroke="#f0883e" stroke-width="1"/>
-    <!-- 10 pulses represented as train -->
-    <path d="M 735,168 L 735,153 L 746,153 L 746,168 L 757,168 L 757,153 L 768,153 L 768,168 L 779,168 L 779,153 L 790,153 L 790,168 L 801,168 L 801,153 L 812,153 L 812,168 L 823,168 L 823,153 L 834,153 L 834,168 L 845,168 L 845,153 L 850,153 L 850,168" fill="none" stroke="#ffa657" stroke-width="2" filter="url(#glow)"/>
+    <!-- Readout pulse train -->
+    <rect x="735" y="148" width="115" height="34" fill="#d29922" fill-opacity="0.15" rx="3" stroke="#f0883e" stroke-width="1"/>
+    <path d="M 735,168 L 735,151 L 746,151 L 746,168 L 757,168 L 757,151 L 768,151 L 768,168 L 779,168 L 779,151 L 790,151 L 790,168 L 801,168 L 801,151 L 812,151 L 812,168 L 823,168 L 823,151 L 834,151 L 834,168 L 845,168 L 845,151 L 850,151 L 850,168" fill="none" stroke="#ffa657" stroke-width="2.5"/>
 
-    <!-- Gap Bracket / Decaying memory annotation -->
-    <rect x="275" y="48" width="345" height="135" fill="#161b22" fill-opacity="0.4" rx="4" stroke="#30363d" stroke-dasharray="4,4"/>
-    <path d="M 285,75 Q 380,110 610,115" fill="none" stroke="#58a6ff" stroke-width="2" stroke-dasharray="3,3"/>
-    <text x="447" y="95" fill="#58a6ff" font-size="12" font-weight="600" text-anchor="middle">TEMPORAL GAP (Memory Decay: V(t) = V₀ · βᵗ)</text>
-    <text x="447" y="112" fill="#8b949e" font-size="10.5" text-anchor="middle">Sub-threshold integration stores Input A across 30 timesteps</text>
+    <!-- Temporal GAP Box -->
+    <rect x="275" y="48" width="345" height="135" fill="#161b22" fill-opacity="0.3" rx="4" stroke="#30363d" stroke-dasharray="4,4"/>
+    <!-- Clean Leaky Decay Curve (Higher up) -->
+    <path d="M 275,60 C 340,95 440,118 620,122" fill="none" stroke="#58a6ff" stroke-width="2.5" stroke-dasharray="4,4"/>
+    <circle cx="275" cy="60" r="3" fill="#58a6ff"/>
+    <text x="285" y="55" fill="#79c0ff" font-size="10" font-weight="bold">V₀</text>
+
+    <!-- Texts placed BELOW the decay curve for perfect legibility -->
+    <text x="447" y="142" fill="#58a6ff" font-size="12" font-weight="700" text-anchor="middle">TEMPORAL GAP (Memory Decay: V(t) = V₀ · βᵗ)</text>
+    <text x="447" y="160" fill="#8b949e" font-size="10.5" text-anchor="middle">Passive LIF sub-threshold potential integration bridges the gap</text>
   </g>
 
   <!-- Big Central Downward Arrow 1 -->
@@ -103,7 +99,6 @@
 
   <!-- ==================== 2. SNN ARCHITECTURES ==================== -->
   <g transform="translate(30, 270)">
-    <!-- Outer Container -->
     <rect width="900" height="270" rx="10" fill="url(#boxGrad)" stroke="#30363d" stroke-width="1.5"/>
     <text x="25" y="28" fill="#58a6ff" font-size="14" font-weight="700" letter-spacing="0.5">2. SNN ARCHITECTURES UNDER INVESTIGATION</text>
 
@@ -111,9 +106,9 @@
     <g transform="translate(20, 42)">
       <rect width="415" height="210" rx="8" fill="#0d1117" stroke="#21262d" stroke-width="1.5"/>
       <text x="18" y="24" fill="#e6edf3" font-size="13" font-weight="700">FeedForward SNN</text>
-      <text x="18" y="38" fill="#7ee787" font-size="10.5">Passive Leaky Integration (decay β bridges the gap)</text>
+      <text x="18" y="38" fill="#7ee787" font-size="10.5">Passive Leaky Integration (Readout R prompts output)</text>
 
-      <!-- Input Layer (x=45) -->
+      <!-- Input Layer (x=45, 3 inputs: A, B, R) -->
       <circle cx="45" cy="70" r="14" fill="url(#nodeGradIn)"/>
       <text x="45" y="74" fill="#fff" font-size="10" font-weight="bold" text-anchor="middle">A</text>
       <circle cx="45" cy="120" r="14" fill="url(#nodeGradIn)"/>
@@ -145,7 +140,7 @@
         <line x1="222" y1="180" x2="350" y2="95"/><line x1="222" y1="180" x2="350" y2="145"/>
       </g>
 
-      <!-- Output Layer (x=365, 2 Neurons) -->
+      <!-- Output Layer (x=365) -->
       <circle cx="365" cy="95" r="14" fill="url(#nodeGradOut)"/>
       <text x="365" y="99" fill="#fff" font-size="10" font-weight="bold" text-anchor="middle">O₀</text>
       <circle cx="365" cy="145" r="14" fill="url(#nodeGradOut)"/>
@@ -153,32 +148,29 @@
       <text x="365" y="172" fill="#ff7b72" font-size="9.5" text-anchor="middle">Class</text>
     </g>
 
-    <!-- 2B. Reservoir Computing SNN (Right Half) -->
+    <!-- 2B. Reservoir Computing SNN (Right Half, Autonomous Memory) -->
     <g transform="translate(465, 42)">
       <rect width="415" height="210" rx="8" fill="#0d1117" stroke="#21262d" stroke-width="1.5"/>
       <text x="18" y="24" fill="#e6edf3" font-size="13" font-weight="700">Reservoir Computing SNN</text>
-      <text x="18" y="38" fill="#58a6ff" font-size="10.5">Recurrent Spiking Dynamics (rich temporal state expansion)</text>
+      <text x="18" y="38" fill="#58a6ff" font-size="10.5">Recurrent Dynamics (reverberating memory, no Readout pulse needed)</text>
 
-      <!-- Input Layer (x=45) -->
-      <circle cx="45" cy="70" r="14" fill="url(#nodeGradIn)"/>
-      <text x="45" y="74" fill="#fff" font-size="10" font-weight="bold" text-anchor="middle">A</text>
-      <circle cx="45" cy="120" r="14" fill="url(#nodeGradIn)"/>
-      <text x="45" y="124" fill="#fff" font-size="10" font-weight="bold" text-anchor="middle">B</text>
-      <circle cx="45" cy="170" r="14" fill="url(#nodeGradIn)"/>
-      <text x="45" y="174" fill="#fff" font-size="10" font-weight="bold" text-anchor="middle">R</text>
+      <!-- Input Layer (Only A and B needed!) -->
+      <circle cx="45" cy="85" r="14" fill="url(#nodeGradIn)"/>
+      <text x="45" y="89" fill="#fff" font-size="10" font-weight="bold" text-anchor="middle">A</text>
+      <circle cx="45" cy="145" r="14" fill="url(#nodeGradIn)"/>
+      <text x="45" y="149" fill="#fff" font-size="10" font-weight="bold" text-anchor="middle">B</text>
 
-      <!-- Fixed Random Input Synapses -->
-      <g stroke="#388bfd" stroke-width="1" stroke-opacity="0.4">
-        <line x1="59" y1="70" x2="175" y2="85"/><line x1="59" y1="70" x2="220" y2="70"/>
-        <line x1="59" y1="120" x2="195" y2="125"/><line x1="59" y1="120" x2="245" y2="110"/>
-        <line x1="59" y1="170" x2="185" y2="165"/><line x1="59" y1="170" x2="235" y2="155"/>
+      <!-- Fixed Random Input Synapses into Reservoir -->
+      <g stroke="#388bfd" stroke-width="1.2" stroke-opacity="0.45">
+        <line x1="59" y1="85" x2="175" y2="85"/><line x1="59" y1="85" x2="240" y2="75"/><line x1="59" y1="85" x2="195" y2="125"/>
+        <line x1="59" y1="145" x2="195" y2="125"/><line x1="59" y1="145" x2="180" y2="165"/><line x1="59" y1="145" x2="235" y2="165"/>
       </g>
 
-      <!-- Recurrent Reservoir Boundary -->
+      <!-- Recurrent Reservoir Box -->
       <rect x="155" y="50" width="130" height="135" rx="12" fill="#1f6feb" fill-opacity="0.08" stroke="#1f6feb" stroke-width="1" stroke-dasharray="4,4"/>
 
-      <!-- Recurrent internal connections -->
-      <g stroke="#58a6ff" stroke-width="1.3" opacity="0.7">
+      <!-- Dense Recurrent synapses -->
+      <g stroke="#58a6ff" stroke-width="1.4" opacity="0.75">
         <line x1="180" y1="85" x2="240" y2="75"/>
         <line x1="240" y1="75" x2="245" y2="125"/>
         <line x1="245" y1="125" x2="195" y2="125"/>
@@ -186,11 +178,12 @@
         <line x1="195" y1="125" x2="235" y2="165"/>
         <line x1="235" y1="165" x2="180" y2="165"/>
         <line x1="180" y1="165" x2="195" y2="125"/>
-        <!-- Self loop on neuron 1 -->
-        <path d="M 175,75 A 9 9 0 1 1 185,73" fill="none" stroke="#58a6ff" stroke-width="1.2"/>
+        <!-- Self recurrent loops -->
+        <path d="M 175,75 A 9 9 0 1 1 185,73" fill="none" stroke="#58a6ff" stroke-width="1.3"/>
+        <path d="M 240,115 A 9 9 0 1 1 250,118" fill="none" stroke="#58a6ff" stroke-width="1.3"/>
       </g>
 
-      <!-- Reservoir Neurons (50 LIF) -->
+      <!-- 6 Reservoir Neurons -->
       <circle cx="180" cy="85" r="11" fill="url(#nodeGradHid)"/>
       <circle cx="240" cy="75" r="11" fill="url(#nodeGradHid)"/>
       <circle cx="195" cy="125" r="11" fill="url(#nodeGradHid)"/>
@@ -225,48 +218,48 @@
     <!-- Truth Table Container -->
     <g transform="translate(30, 42)">
       <!-- Table Header -->
-      <rect x="0" y="0" width="520" height="22" fill="#21262d" rx="3"/>
+      <rect x="0" y="0" width="540" height="22" fill="#21262d" rx="3"/>
       <text x="45" y="15" fill="#8b949e" font-size="11" font-weight="bold" text-anchor="middle">Input A</text>
       <text x="145" y="15" fill="#8b949e" font-size="11" font-weight="bold" text-anchor="middle">Input B</text>
-      <text x="270" y="15" fill="#8b949e" font-size="11" font-weight="bold" text-anchor="middle">Target Class (A ⊕ B)</text>
-      <text x="430" y="15" fill="#8b949e" font-size="11" font-weight="bold" text-anchor="middle">Active Firing Neuron</text>
+      <text x="260" y="15" fill="#8b949e" font-size="11" font-weight="bold" text-anchor="middle">Target (A ⊕ B)</text>
+      <text x="430" y="15" fill="#8b949e" font-size="11" font-weight="bold" text-anchor="middle">Spike Count Output (Rate Comparison)</text>
 
       <!-- Row 1: 0, 0 -> 0 -->
       <text x="45" y="38" fill="#e6edf3" font-size="11" text-anchor="middle">0 (3 spikes)</text>
       <text x="145" y="38" fill="#e6edf3" font-size="11" text-anchor="middle">0 (3 spikes)</text>
-      <text x="270" y="38" fill="#7ee787" font-size="12" font-weight="bold" text-anchor="middle">0</text>
-      <text x="430" y="38" fill="#8b949e" font-size="11" text-anchor="middle">Neuron O₀ (Spikes) | O₁ (Quiet)</text>
-      <line x1="0" y1="44" x2="520" y2="44" stroke="#21262d" stroke-width="1"/>
+      <text x="260" y="38" fill="#7ee787" font-size="12" font-weight="bold" text-anchor="middle">0</text>
+      <text x="430" y="38" fill="#8b949e" font-size="11" text-anchor="middle">Higher firing rate on O₀  (Spike count: O₀ &gt; O₁)</text>
+      <line x1="0" y1="44" x2="540" y2="44" stroke="#21262d" stroke-width="1"/>
 
       <!-- Row 2: 0, 1 -> 1 (HIGHLIGHTED CURRENT CASE) -->
-      <rect x="0" y="46" width="520" height="20" fill="#388bfd" fill-opacity="0.15" rx="2"/>
+      <rect x="0" y="46" width="540" height="20" fill="#388bfd" fill-opacity="0.15" rx="2"/>
       <text x="45" y="60" fill="#79c0ff" font-size="11" font-weight="bold" text-anchor="middle">0 (3 spikes)</text>
       <text x="145" y="60" fill="#79c0ff" font-size="11" font-weight="bold" text-anchor="middle">1 (6 spikes)</text>
-      <text x="270" y="60" fill="#58a6ff" font-size="12" font-weight="bold" text-anchor="middle">1 ★</text>
-      <text x="430" y="60" fill="#58a6ff" font-size="11" font-weight="bold" text-anchor="middle">Neuron O₁ (Spikes) | O₀ (Quiet)</text>
-      <line x1="0" y1="68" x2="520" y2="68" stroke="#21262d" stroke-width="1"/>
+      <text x="260" y="60" fill="#58a6ff" font-size="12" font-weight="bold" text-anchor="middle">1 ★</text>
+      <text x="430" y="60" fill="#58a6ff" font-size="11" font-weight="bold" text-anchor="middle">Higher firing rate on O₁  (Spike count: O₁ &gt; O₀) ★</text>
+      <line x1="0" y1="68" x2="540" y2="68" stroke="#21262d" stroke-width="1"/>
 
       <!-- Row 3: 1, 0 -> 1 -->
       <text x="45" y="83" fill="#e6edf3" font-size="11" text-anchor="middle">1 (6 spikes)</text>
       <text x="145" y="83" fill="#e6edf3" font-size="11" text-anchor="middle">0 (3 spikes)</text>
-      <text x="270" y="83" fill="#58a6ff" font-size="12" font-weight="bold" text-anchor="middle">1</text>
-      <text x="430" y="83" fill="#8b949e" font-size="11" text-anchor="middle">Neuron O₁ (Spikes) | O₀ (Quiet)</text>
-      <line x1="0" y1="89" x2="520" y2="89" stroke="#21262d" stroke-width="1"/>
+      <text x="260" y="83" fill="#58a6ff" font-size="12" font-weight="bold" text-anchor="middle">1</text>
+      <text x="430" y="83" fill="#8b949e" font-size="11" text-anchor="middle">Higher firing rate on O₁  (Spike count: O₁ &gt; O₀)</text>
+      <line x1="0" y1="89" x2="540" y2="89" stroke="#21262d" stroke-width="1"/>
 
       <!-- Row 4: 1, 1 -> 0 -->
       <text x="45" y="103" fill="#e6edf3" font-size="11" text-anchor="middle">1 (6 spikes)</text>
       <text x="145" y="103" fill="#e6edf3" font-size="11" text-anchor="middle">1 (6 spikes)</text>
-      <text x="270" y="103" fill="#7ee787" font-size="12" font-weight="bold" text-anchor="middle">0</text>
-      <text x="430" y="103" fill="#8b949e" font-size="11" text-anchor="middle">Neuron O₀ (Spikes) | O₁ (Quiet)</text>
+      <text x="260" y="103" fill="#7ee787" font-size="12" font-weight="bold" text-anchor="middle">0</text>
+      <text x="430" y="103" fill="#8b949e" font-size="11" text-anchor="middle">Higher firing rate on O₀  (Spike count: O₀ &gt; O₁)</text>
     </g>
 
     <!-- Decision Logic Callout -->
-    <g transform="translate(580, 42)">
-      <rect width="290" height="98" rx="6" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+    <g transform="translate(600, 42)">
+      <rect width="270" height="98" rx="6" fill="#161b22" stroke="#30363d" stroke-width="1"/>
       <text x="15" y="24" fill="#f0883e" font-size="12" font-weight="700">Classification Rule:</text>
       <text x="15" y="44" fill="#e6edf3" font-size="11.5">ArgMax across temporal readout:</text>
-      <rect x="15" y="54" width="260" height="32" rx="4" fill="#0d1117" stroke="#388bfd" stroke-width="1"/>
-      <text x="145" y="74" fill="#79c0ff" font-size="12" font-weight="bold" text-anchor="middle">Predicted Class = argmax ( Σ spk_out )</text>
+      <rect x="15" y="54" width="240" height="32" rx="4" fill="#0d1117" stroke="#388bfd" stroke-width="1"/>
+      <text x="135" y="74" fill="#79c0ff" font-size="11.5" font-weight="bold" text-anchor="middle">Predicted = argmax ( Σ spk_out )</text>
     </g>
   </g>
 </svg>
