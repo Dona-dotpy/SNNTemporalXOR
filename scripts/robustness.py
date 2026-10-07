@@ -17,9 +17,12 @@ from datetime import datetime
 
 SEEDS = [i for i in range(1000,1020)]
 GAPS = [0, 10, 15, 20, 25, 30, 35, 40, 50, 60, 80, 100]
+
 ## --- Functions ---
 
-def robustness_test_different_seeds(model_class, train_loader, val_loader, optimizer_class=config.OPTIMIZER,
+# different training conditions
+
+def robustness_train_different_seeds(model_class, train_loader, val_loader, optimizer_class=config.OPTIMIZER,
                                     optimizer_params = config.OPTIMIZER_PARAMS, loss_fn_class=config.LOSS_FN, 
                                     scheduler_class = config.SCHEDULER, scheduler_params = config.SCHEDULER_PARAMS):
 
@@ -148,7 +151,7 @@ def robustness_test_different_seeds(model_class, train_loader, val_loader, optim
     plt.show()
     return avg_loss, avg_acc, std_dev_loss, std_dev_acc
 
-def robustness_test_different_gaps(model_class, optimizer_class=config.OPTIMIZER, optimizer_params = config.OPTIMIZER_PARAMS, 
+def robustness_train_different_gaps(model_class, optimizer_class=config.OPTIMIZER, optimizer_params = config.OPTIMIZER_PARAMS, 
                                    loss_fn_class=config.LOSS_FN, scheduler_class = config.SCHEDULER, 
                                    scheduler_params = config.SCHEDULER_PARAMS, seed=config.SEED):
     """
@@ -231,7 +234,7 @@ def robustness_test_different_gaps(model_class, optimizer_class=config.OPTIMIZER
     ax[0, 1].set_ylabel("Accuracy")
     ax[0, 0].legend()
     ax[0, 1].legend()
-    fig.suptitle("Gap Robustness test")
+    fig.suptitle("Gap Robustness train test")
     fig.tight_layout()
 
     # compute average loss and accuracies
@@ -271,7 +274,7 @@ def robustness_test_different_gaps(model_class, optimizer_class=config.OPTIMIZER
     print(f"average accuracy is: {avg_acc}±{std_dev_acc}")
 
     save_robustness_results(
-        test_name="different_gaps",
+        test_name="different_gaps_train",
         model_class=model_class,
         results=results,
         summary=summary,
@@ -292,6 +295,149 @@ def robustness_test_different_gaps(model_class, optimizer_class=config.OPTIMIZER
 
     plt.show()
     return avg_loss, avg_acc, std_dev_loss, std_dev_acc
+
+# different test conditions
+
+def robustness_test_different_gaps(model, loss_fn_class=config.LOSS_FN, seed=config.SEED):
+    """
+    Tests the robustness of the test procedure across different temporal gaps.
+
+    For each gap defined in `GAPS`, a new dataset is generated and, selecting a model
+    inside the "models" directory we can test the robustness if we vary the gap length.
+
+    Changing the temporal gap allows us to evaluate whether the selected training
+    configuration remains effective when the temporal distance between input A and
+    input B is modified.
+
+    For each independent test run, validation loss and accuracy are recorded at
+    every epoch. The epoch corresponding to the minimum validation loss is selected
+    and used to compare performance across the tested temporal gaps.
+
+    Args:
+        model (torch.nn.Module): Pre-trained model to evaluate.
+        loss_fn_class (type): Loss function class.
+        seed (int): Seed used to control model initialization and training stochasticity.
+
+    Returns:
+        tuple:
+            avg_loss (float): Mean of the minimum validation losses across tested gaps.
+            avg_acc (float): Mean validation accuracy measured at the minimum-loss
+                epoch for each tested gap.
+            std_dev_loss (float): Standard deviation of the minimum validation losses
+                across tested gaps.
+            std_dev_acc (float): Standard deviation of the corresponding validation
+                accuracies across tested gaps.
+    """
+
+    model.to(config.DEVICE)
+
+    # let's create a dictionary to store the results of validation losses and accuracies
+    results = {
+        "losses": [],
+        "accuracies": [],
+    }
+    
+    # compute losses and accuracies
+    for i, gap in enumerate(GAPS):
+        loss_hist, acc_hist= [], []
+        for N in range(config.N_ROBUSTNESS_DATASET):
+            # we neeed to create the dataset everytime with a different gap
+            test_dataset = functions.generate_test_dataset(gap = gap, seed = seed + N)
+            test_loader = functions.generate_test_dataloader(test_dataset)
+
+            print(f"Gap test {i * config.N_ROBUSTNESS_DATASET + N + 1}/{len(GAPS)*config.N_ROBUSTNESS_DATASET} - gap = {gap}...")
+            loss_fn = loss_fn_class()     
+
+            # single pass: frozen model on static test set is deterministic (epochs are only for training)
+            loss_test, acc_test = functions.evaluate(model, test_loader, loss_fn)
+            loss_hist.append(loss_test)
+            acc_hist.append(acc_test)
+
+        results["losses"].append(loss_hist)
+        results["accuracies"].append(acc_hist)
+
+    # plot the results and store them
+    fig, ax = plt.subplots(1, 2, figsize = (12,4), squeeze=False)
+    for i in range(len(results["losses"])):
+        loss = results["losses"][i]
+        acc = results["accuracies"][i]
+        gap = GAPS[i]
+        ax[0, 0].plot(loss, label=f"GAP = {gap}")
+        ax[0, 1].plot(acc, label=f"GAP = {gap}")
+    ax[0, 0].set_title("Test losses")
+    ax[0, 0].set_ylabel("Loss")
+    ax[0, 1].set_title("Test accuracies")
+    ax[0, 1].set_ylabel("Accuracy")
+    ax[0, 0].legend()
+    ax[0, 1].legend()
+    fig.suptitle("Gap Robustness test")
+    fig.tight_layout()
+
+    mean_losses, std_losses = [], []
+    mean_accs, std_accs = [], []
+    summary = []
+    for losses, accs, gap in zip(results["losses"], results["accuracies"], GAPS):
+        m_loss = sum(losses) / len(losses)
+        s_loss = torch.tensor(losses).std().item()
+        m_acc = sum(accs) / len(accs)
+        s_acc = torch.tensor(accs).std().item()
+
+        mean_losses.append(m_loss)
+        std_losses.append(s_loss)
+        mean_accs.append(m_acc)
+        std_accs.append(s_acc)
+
+        summary.append({
+            "gap": gap,
+            "mean_test_loss": m_loss,
+            "std_test_loss": s_loss,
+            "mean_test_accuracy": m_acc,
+            "std_test_accuracy": s_acc,
+            "min_test_accuracy": min(accs),                                    # worst-case dataset accuracy for this gap
+            "max_test_accuracy": max(accs)                                     # best-case dataset accuracy for this gap
+        })
+        
+    # Plot the best validation loss and corresponding accuracy as a function of the temporal gap
+    fig_gap, ax_gap = plt.subplots(1, 2, figsize=(12, 4))
+    ax_gap[0].plot(GAPS, mean_losses, marker="o")
+    ax_gap[0].set_xlabel("Gap")
+    ax_gap[0].set_ylabel("Mean test loss")
+    ax_gap[0].set_title("Mean test loss vs GAP")
+    ax_gap[1].plot(GAPS, mean_accs, marker="o")
+    ax_gap[1].set_xlabel("Gap")
+    ax_gap[1].set_ylabel("Test accuracy (%)")
+    ax_gap[1].set_title("Test accuracy vs GAP")
+    fig_gap.suptitle("Performance across temporal gaps")
+    fig_gap.tight_layout()
+
+    avg_loss = sum(mean_losses)/len(mean_losses)
+    avg_acc = sum(mean_accs)/len(mean_accs)
+    std_dev_loss = torch.tensor(mean_losses, dtype=torch.float).std().item()
+    std_dev_acc = torch.tensor(mean_accs, dtype=torch.float).std().item()
+
+    print(f"average loss is: {avg_loss}±{std_dev_loss}")
+    print(f"average accuracy is: {avg_acc}±{std_dev_acc}")
+
+    save_robustness_results(
+        test_name="different_gaps_test",
+        model_class=model.__class__,
+        results=results,
+        summary=summary,
+        avg_loss=avg_loss,
+        avg_acc=avg_acc,
+        std_dev_loss=std_dev_loss,
+        std_dev_acc=std_dev_acc,
+        fig=fig,
+        summary_fig=fig_gap,
+        tested_parameter_name="gap",
+        tested_parameter_values=GAPS,
+        loss_fn_class=loss_fn_class,
+    )
+
+    plt.show()
+    return avg_loss, avg_acc, std_dev_loss, std_dev_acc
+
+# saving functions
 
 def save_robustness_results(
     test_name,
@@ -453,7 +599,11 @@ if __name__ == "__main__":
     # SEED robustness test
     # train_dataset, val_dataset = functions.generate_train_validation_dataset()
     # train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
-    # avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_test_different_seeds(classes.XORSNN, train_loader, val_loader)
+    # avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_different_seeds(classes.XORSNN, train_loader, val_loader)
 
-    # GAP robustness test
-    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_test_different_gaps(classes.XORSNN)
+    # GAP robustness train test
+    # avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_different_gaps(classes.XORSNN)
+
+    # GAP robustness test test
+    model = functions.load_model()
+    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_test_different_gaps(model)

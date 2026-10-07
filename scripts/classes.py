@@ -31,7 +31,8 @@ class TemporalXORDataset(Dataset):
         method. However, this approach is generally not recommended as it prevents 
         consistent training epochs and validation splits.
     """
-    def __init__(self, num_samples=config.NUM_SAMPLES, len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, gap=config.GAP):
+    def __init__(self, num_samples=config.NUM_SAMPLES, len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, 
+                 len_sign_r=config.READOUT, gap=config.GAP, noise_spikes=config.NOISE_SPIKES):
         self.num_samples = num_samples
         self.samples = []
         self.labels = []
@@ -39,7 +40,7 @@ class TemporalXORDataset(Dataset):
         # Let's fill the dataset with the number of samples we estabilished
         for _ in range(num_samples):
             A, B = torch.randint(0,2, (1,)).item(), torch.randint(0,2, (1,)).item()
-            Data, label = functions.XOR_no_noise(A, B, len_sign_a, len_sign_b, len_sign_r, gap)
+            Data, label, metrics = functions.XOR(A, B, len_sign_a, len_sign_b, len_sign_r, gap, noise_spikes)
             self.samples.append(Data)
             self.labels.append(label)
 
@@ -82,21 +83,22 @@ class XORSNN(nn.Module):
             - spk (torch.Tensor): The output spikes (0.0 or 1.0). Shape: `[batch_size, output_layer]`.
             - mem (torch.Tensor): The updated membrane potential. Shape: `[batch_size, output_layer]`.
     """
-    def __init__(self, input_layer=config.INPUT_LAYER, hidden_layer=config.HIDDEN_LAYER, output_layer=config.OUTPUT_LAYER):
+    def __init__(self, input_layer=config.INPUT_LAYER, hidden_layer=config.HIDDEN_LAYER, output_layer=config.OUTPUT_LAYER, beta=config.BETA):
         super().__init__()
+        self.input_layer = input_layer
 
         self.net = nn.Sequential(
             nn.Linear(input_layer, hidden_layer),
-            snn.Leaky(beta=config.BETA, init_hidden = True),                           # init_hidden = True stores the mebrane potential between different calls
+            snn.Leaky(beta=beta, init_hidden = True),                           # init_hidden = True stores the mebrane potential between different calls
             nn.Linear(hidden_layer, output_layer),
-            snn.Leaky(beta=config.BETA, init_hidden = True, output = True)             # output = True gives back the membrane potential, too
+            snn.Leaky(beta=beta, init_hidden = True, output = True)             # output = True gives back the membrane potential, too
         )
 
     def forward(self, x):
 
         # Check if the tensor dimensionality is correct, otherwise raise a ValueError
-        if x.shape[1] != config.INPUT_LAYER:
-            raise ValueError(f"No matching between the input layer size required ({config.INPUT_LAYER}) and yours ({x.shape[1]})")
+        if x.shape[1] != self.input_layer:
+            raise ValueError(f"No matching between the input layer size required ({self.input_layer}) and yours ({x.shape[1]})")
 
         # Reset of LIF membrane in order to avoid influence of previous batch
         utils.reset(self.net)

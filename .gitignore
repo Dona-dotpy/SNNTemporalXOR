@@ -46,3 +46,7 @@ pip-delete-this-directory.txt
 # wandb
 # ========================
 wandb/
+
+
+GEMINI.md
+SUGGESTIONS.md

@@ -24,8 +24,8 @@ import time
 
 ## -- INPUT FUNCTIONS AND DATA---
 
-def XOR_no_noise(A, B, len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, gap=config.GAP):
-    """ Function that generates 3 input signals (Neuron A, Neuron B and Readout) without noise
+def XOR(A, B, len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, gap=config.GAP, noise_spikes = config.NOISE_SPIKES):
+    """ Function that generates 3 input signals (Neuron A, Neuron B and Readout)
 
     We associate to the 0 the generation of fire probability of 30% for each time step, 60% for 1
 
@@ -36,11 +36,13 @@ def XOR_no_noise(A, B, len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_s
         len_sign_b(int): number of timesteps given to neuron B input
         len_sign_r(int): number of timesteps given to readout signal
         gap(int): number of timesteps between the end of signal A and the begging of signal B
+        noise_spikes(int): number of disturbance spikes injected into the temporal gap
     
     returns:
         Data(torch.Tensor): Matrix containing the 3 inputs randomly generates
             Shape: [3, sign_a + gap + sign_b + readout]
         label(int): result of standard XOR computation
+        noise_metrics(float): normalized centre of mass of the noise spikes inside the gap [0,1]
     """
 
     A_on, B_on = torch.zeros(len_sign_a), torch.zeros(len_sign_b)
@@ -65,12 +67,25 @@ def XOR_no_noise(A, B, len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_s
     # Let's complete the tensor with the off status
     A_off = torch.zeros(gap + len_sign_b + len_sign_r)
     B_off_b, B_off_a = torch.zeros(len_sign_a + gap), torch.zeros(len_sign_r)
+
+    # noise generation
+    noise_positions = torch.randperm(2*gap)[:noise_spikes]          # consider both channels
+    for i in noise_positions:                                       # depending on the value put the spike on channel A or B
+        if i >= gap:
+            B_off_b[len_sign_a+i-gap] = 1
+        else:
+            A_off[i] = 1
+
+    # compute noise metrics (sum of indexes of spikes, considering that if on B we have to remove gap)
+    noise_metrics = (sum(noise_positions) - gap * (noise_positions>=gap).float().sum())/ (gap*len(noise_positions)) if gap > 0 and len(noise_positions) >0 else 0
+
+    # create total tensor
     A_tot, B_tot = torch.cat((A_on, A_off)), torch.cat((B_off_b, B_on, B_off_a))
 
     # readout generation
     readout = torch.cat((torch.zeros(len_sign_a+gap+len_sign_b), torch.ones(len_sign_r)))
 
-    return torch.stack((A_tot, B_tot, readout), dim = 0), A ^ B
+    return torch.stack((A_tot, B_tot, readout), dim = 0), A ^ B, noise_metrics
 
 def generate_new_random_data():
     """
@@ -85,45 +100,82 @@ def generate_new_random_data():
     """
     return DataLoader(classes.TemporalXORDataset(), batch_size=config.BATCH_SIZE, shuffle=False)
 
-def generate_train_validation_dataset(len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, gap=config.GAP):
+def generate_train_validation_dataset(len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, 
+                                      gap=config.GAP, noise_spikes = config.NOISE_SPIKES):
     """
     Function that generates the Temporal XOR dataset and splits it into a train
     and a test set, using fixed seeds for reproducibility.
 
+    Args:
+        len_sign_a(int): number of temporal spikes allocated to input A
+        len_sign_b(int): number of temporal spikes allocated to input B
+        len_sign_r(int): number of temporal spikes allocated to readout
+        gap(int): number of temporal spikes allocated to gap
+        noise_spikes(int): number of disturbance spikes injected into the temporal gap
+
+
     Returns:
         train_dataset (torch.utils.data.Subset): The subset used for training.
-        test_dataset (torch.utils.data.Subset): The subset used for testing.
+        val_dataset (torch.utils.data.Subset): The subset used for testing.
     """
     torch.manual_seed(config.SEED)                                                      # Seed setup
     dataset = classes.TemporalXORDataset(len_sign_a=len_sign_a, len_sign_b=len_sign_b,  # Dataset allocation
-                                len_sign_r=len_sign_r, gap=gap)   
+                                len_sign_r=len_sign_r, gap=gap, noise_spikes=noise_spikes)   
     n_train = int(config.TRAIN_SPLIT * len(dataset))                                    # length of train dataset
-    n_test = len(dataset) - n_train                                                     # length of test dataset
-    train_dataset, test_dataset = random_split(                                                       
+    n_val = len(dataset) - n_train                                                     # length of test dataset
+    train_dataset, val_dataset = random_split(                                                       
         dataset,
-        [n_train, n_test],
+        [n_train, n_val],
         generator = torch.Generator().manual_seed(config.SEED)
     )
 
-    print("Train dataset e Test dataset successfully generated.")
+    print("Train dataset e Validation dataset successfully generated.")
     print(f"The length of the train dataset is: {len(train_dataset)}")
-    print(f"The length of the test dataset is: {len(test_dataset)}\n")
-    return train_dataset, test_dataset
+    print(f"The length of the test dataset is: {len(val_dataset)}\n")
+    return train_dataset, val_dataset
+
+def generate_test_dataset(len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, 
+                          gap=config.GAP, noise_spikes = config.NOISE_SPIKES, seed = config.SEED):
+    """
+    Function that generates the Temporal XOR dataset  for testing, using fixed seeds 
+    for reproducibility.
+
+    Returns:
+        test_dataset (torch.utils.data.DataSet): dataset used for testing.
+    """   
+    torch.manual_seed(seed)
+    dataset = classes.TemporalXORDataset(len_sign_a=len_sign_a, len_sign_b=len_sign_b,          # Dataset allocation
+                                    len_sign_r=len_sign_r, gap=gap, noise_spikes=noise_spikes)
+    print("Test dataset successfully generated.")
+    print(f"The length of the test dataset is: {len(dataset)}")
+    return dataset
 
 def generate_train_validation_dataloader(train_dataset, val_dataset):
     """ Generate train and test dataloaders from datasets
 
     Args:
         train_dataset (torch.utils.data.Subset): The subset used for training.
-        test_dataset (torch.utils.data.Subset): The subset used for testing.
+        val_dataset (torch.utils.data.Subset): The subset used for testing.
     
     Returns:
         train_dataloader (torch.utils.data.DataLoader): The DataLoader for the train set (shuffled).
-        test_dataloader (torch.utils.data.DataLoader): The DataLoader for the test set (not shuffled).
+        val_dataloader (torch.utils.data.DataLoader): The DataLoader for the test set (not shuffled).
     """
     train_dataloader = DataLoader(train_dataset, batch_size=config.BATCH_SIZE, shuffle = True)
     val_dataloader = DataLoader(val_dataset, batch_size=config.BATCH_SIZE, shuffle=False)
     return train_dataloader, val_dataloader
+
+def generate_test_dataloader(test_dataset):
+    """ Generate test dataloaders from datasets
+
+    Args:
+        test_dataset (torch.utils.data.Subset): The dataset used for testing.
+    
+    Returns:
+        test_dataloader (torch.utils.data.DataLoader): The DataLoader for the test set (not shuffled).
+    """   
+    test_dataloader = DataLoader(test_dataset, batch_size=config.BATCH_SIZE, shuffle=False)
+    return test_dataloader
 
 def fluctuation_driven_initialization(model, train_loader):
     """
@@ -397,7 +449,7 @@ def load_model(epochs = config.EPOCHS, lr = config.LEARNING_RATE, hidden = confi
         for filename in os.listdir(folder_name):
             if filename.endswith(".pth") and check_string in filename:          # ensure to choose correct name and that is model
                 file_path = os.path.join(folder_name, filename)                 # creation of complete path
-                model = classes.XORSNN()
+                model = classes.XORSNN(hidden_layer=int(hidden), beta=float(beta))
                 weights = torch.load(file_path, map_location = config.DEVICE)   # load weights on the working device
                 model.load_state_dict(weights)
                 print(f"Model correctly loaded from: {file_path}")

@@ -8,7 +8,8 @@ SEED = 1542
 PROB_0, PROB_1 = 0.3, 0.6                           # spike probabilities used to represent 0 and 1
 SIGN_A, SIGN_B = 10, 10                             # number of timesteps of signals A and B of XOR
 GAP, READOUT = 30, 10                               # numers of timesteps of gap and readout
-TOT_TIMESTEPS = SIGN_A + SIGN_B + GAP + READOUT     
+TOT_TIMESTEPS = SIGN_A + SIGN_B + GAP + READOUT
+NOISE_SPIKES = 0     
 
 ## --- Dataset ---
 BATCH_SIZE = 32

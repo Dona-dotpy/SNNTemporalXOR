@@ -1,268 +1,194 @@
-# Temporal XOR with Spiking Neural Networks
+<div align="center">
 
-This repository contains the source code developed for my Master's thesis in **Engineering Physics at Politecnico di Milano**.
+# ⚡ Temporal XOR with Spiking Neural Networks
 
-## Project Overview
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![snnTorch](https://img.shields.io/badge/snnTorch-Spiking_Neural_Networks-orange.svg)](https://snntorch.readthedocs.io/)
+[![Optuna](https://img.shields.io/badge/Optuna-Hyperparameter_Search-007ACC.svg)](https://optuna.org/)
+[![W&B](https://img.shields.io/badge/Weights_&_Biases-Monitoring-FFBE00?logo=weightsandbiases&logoColor=black)](https://wandb.ai/)
+[![Politecnico di Milano](https://img.shields.io/badge/PoliMi-Engineering_Physics-002D62.svg)](https://www.polimi.it/)
 
-The project investigates the training and analysis of **Spiking Neural Networks (SNNs)** for solving a **Temporal XOR task**.
-
-The networks process rate-coded inputs, where the intensity of the input signals is translated into spike frequencies over time.
-
-The main objective is to study the behavior and performance of different SNN architectures, with particular attention to:
-
-- **FeedForward SNNs**
-- **Reservoir Computing architectures**
-
-The implementation is based mainly on **PyTorch** and **snnTorch**.
-
-At the current stage of the project, the experimental work has primarily focused on FeedForward networks.
-
-## Key Features
-
-### → Temporal rate coding
-
-Standard input signals are converted into temporal spike trains, where the input values determine the corresponding spike probabilities or firing rates.
-
-### → Spiking neural network architectures
-
-The project uses **Leaky Integrate-and-Fire (LIF)** neurons and is designed to support the comparison of different network architectures.
-
-Currently investigated architectures include:
-
-- FeedForward SNNs
-- Reservoir-based SNNs
-
-### → Training and validation
-
-The repository contains reusable functions for:
-
-- network training;
-- validation;
-- performance evaluation;
-- loss and accuracy tracking;
-- visualization of training behavior.
-
-### → Hyperparameter optimization
-
-Hyperparameter optimization is performed using **Optuna**, while **Weights & Biases (W&B)** is used to monitor experiments and training metrics.
-
-The optimization pipeline can explore parameters related to:
-
-- network size;
-- learning rate;
-- optimizer and optimizer-specific parameters;
-- learning-rate scheduler;
-- weight initialization strategy;
-- initialization-specific parameters.
-
-The best model reached during each trial is stored according to the minimum validation loss rather than simply using the model obtained at the final epoch.
-
-### → Robustness analysis
-
-After hyperparameter optimization, the selected configuration is tested under different conditions to evaluate the robustness of both the training procedure and the resulting network.
-
-Examples include repeated training with different random seeds and, in later stages, different dataset realizations or perturbations of the task and network parameters.
+**Master's Thesis in Engineering Physics — Politecnico di Milano**  
+*Investigating temporal integration, sub-threshold memory persistence, and noise robustness in Leaky Integrate-and-Fire (LIF) SNNs.*
 
 ---
 
-## Repository Structure
+</div>
+
+## 📌 Project Overview
+
+This repository investigates the computational capabilities and temporal robustness of **Spiking Neural Networks (SNNs)** applied to the **Temporal XOR task**.
+
+In contrast to static XOR, temporal XOR separates the presentation of input signals in time by an arbitrary gap:
+* The network receives rate-coded spike trains for inputs **A** and **B** separated by a delay.
+* Because FeedForward networks lack recurrent connections, temporal memory relies entirely on the sub-threshold leaky integration of membrane potentials:
+  $$\tau = -\frac{\Delta t}{\ln \beta}$$
+* A terminal **Readout signal** prompts the network to release its integrated state and fire spikes corresponding to $A \oplus B$.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant In as Input Channels (A, B, Readout)
+    participant Hidden as LIF Hidden Layer (Leaky Integration)
+    participant Out as LIF Output Layer
+    
+    Note over In,Hidden: t = 0..10: Input A spike train (30% or 60% rate)
+    In->>Hidden: Poisson-like spikes (Signal A)
+    Note over Hidden: Sub-threshold potential integration
+    
+    Note over In,Hidden: t = 10..40: Temporal GAP (Memory Persistence + Optional Noise)
+    In-->>Hidden: Quiescent gap / Stochastic noise spikes
+    Note over Hidden: Exponential decay of membrane potential: V(t) = V_0 * beta^(t)
+    
+    Note over In,Hidden: t = 40..50: Input B spike train (30% or 60% rate)
+    In->>Hidden: Poisson-like spikes (Signal B)
+    Note over Hidden: Non-linear temporal combination of A and B
+    
+    Note over In,Out: t = 50..60: Readout Window
+    In->>Out: Readout driving current (Channel R = 1)
+    Out-->>Out: Output spikes: Class 0 vs Class 1 (ArgMax of spike counts)
+```
+
+---
+
+## 🔬 Key Research & Architectural Features
+
+### 1. ⏱️ Temporal Rate Coding with Gap Noise Injection
+* Input intensities (0 and 1) are encoded into distinct spike probabilities ($P_0 = 30\%$, $P_1 = 60\%$).
+* **Disturbance Analysis**: Configurable noise spikes can be injected directly into the temporal gap across channels $A$ and $B$.
+* **Normalized Center-of-Mass Metric**:
+  $$\text{Metric}_{\text{noise}} = \frac{\sum t_{\text{gap}}}{N_{\text{spikes}} \cdot \text{Gap}} \in [0, 1]$$
+  Measures whether noise is concentrated near the start (high decay dissipation) or near the end of the gap (high disruptive impact on signal B).
+
+### 2. 🧠 Leaky Integrate-and-Fire (LIF) Dynamics
+* Custom architectures developed using `snnTorch` and `PyTorch`.
+* **FeedForward SNNs**: Single and multi-layer architectures exploiting passive membrane integration to bridge temporal delays.
+* **Reservoir Computing SNNs**: Recurrent spiking reservoirs for complex non-linear temporal expansion.
+* **Fluctuation-Driven Weight Initialization**: Physics-grounded initialization setting synaptic weight variances according to the average input activity and neuron firing thresholds.
+
+### 3. 🎯 Systematic Hyperparameter Optimization
+* Optimization driven by **Optuna** with SQLite database persistence (`optuna.study`).
+* Exploration of network width, learning rates, schedulers (MultiStepLR, CosineAnnealing), and weight initialization parameters.
+* Real-time metrics streaming and loss visualization via **Weights & Biases (W&B)**.
+* **Interrupted-Trial Checkpointing**: Robust recovery mechanism saving RNG states, model weights, and optimizer states every 10 epochs.
+
+### 4. 🛡️ Multi-Dimensional Robustness Framework
+* **Seed Variability**: Multiple training runs with independent RNG seeds to assess convergence reliability.
+* **Gap Scaling**: Systematic evaluation of memory degradation as the temporal gap is increased across both training and frozen-inference regimes.
+* **Noise Sensitivity**: Degradation curves mapping accuracy versus the number and temporal center of mass of gap disturbance spikes.
+
+---
+
+## 📈 Featured Results
+
+Below is a representative training and validation history obtained from an optimized FeedForward LIF model ($H=100, \beta=0.95$, AdamW optimizer with MultiStepLR scheduler):
+
+<div align="center">
+
+![Training History](images/Training_FF/E1000-LR0.0062979175559891715-SiSched-H100-B0.95-SiInit.png)
+
+*Figure 1: Validation loss minimization and accuracy convergence over 1,000 epochs on the rate-coded Temporal XOR task.*
+
+</div>
+
+---
+
+## 🚀 Quickstart & Usage
+
+### 1. Installation
+Clone the repository and install the required dependencies:
+
+```bash
+git clone https://github.com/dona/SNNTemporalXOR.git
+cd SNNTemporalXOR
+pip install torch snntorch optuna wandb matplotlib plotext
+```
+
+### 2. Standard Training & Model Inspection
+Run the interactive pipeline to train or inspect a trained model:
+```bash
+python scripts/main.py
+```
+> [!TIP]
+> `main.py` detects whether an optimized model matching `config.py` already exists in `models/`. It allows you to inspect terminal ASCII spike plots or test model robustness interactively.
+
+### 3. Robustness Experiments
+Execute seed invariance, gap scaling, and noise sensitivity experiments:
+```bash
+python scripts/robustness.py
+```
+
+### 4. Hyperparameter Search
+Launch an automated Optuna search sweep:
+```bash
+python scripts/optimize_hyperparameters.py
+```
+
+---
+
+## 📂 Repository Structure
 
 ```text
 SNNTemporalXOR/
+├── images/
+│   └── Training_FF/                   # Loss and accuracy plots from FeedForward SNN runs
 │
-├── Images/
-│   └── Training_FF/
+├── models/                            # Serialized PyTorch model weights (.pth)
 │
-├── models/
+├── optimization_results/              # Artifacts from Optuna optimization
+│   ├── best_models/                   # Models preserved at lowest validation loss
+│   ├── checkpoints/                   # Trial checkpoints for resilient recovery
+│   ├── archive/                       # Archived historical optimization runs
+│   ├── hyperparameter_optimization.db # Persistent SQLite database
+│   └── optimization_config.json       # Active search space configuration
 │
-├── optimization_results/
-│   ├── best_models/
-│   ├── checkpoints/
-│   ├── archive/
-│   ├── hyperparameter_optimization.db
-│   └── optimization_config.json
+├── robustness_results/                # Test outputs, JSON summaries and figures
 │
-├── robustness_results/
+├── scripts/
+│   ├── config.py                      # Global parameters (Single Source of Truth)
+│   ├── classes.py                     # SNN architecture and dataset definitions
+│   ├── functions.py                   # Data coding, training loops, metrics and plotting
+│   ├── main.py                        # Primary training, testing and interactive loading
+│   ├── robustness.py                  # Robustness testing suite (seeds, gaps, noise)
+│   └── optimize_hyperparameters.py    # Optuna & W&B search pipeline
 │
-└── scripts/
-    ├── main.py
-    ├── optimize_hyperparameters.py
-    ├── robustness_tests.py
-    ├── config.py
-    ├── classes.py
-    └── functions.py
+├── SUGGESTIONS.md                     # Thesis suggestions, mathematical formulas & metrics
+└── README.md                          # Project documentation
 ```
 
-### `Images/`
+---
 
-Contains the most relevant plots generated during training, validation and testing.
+## ⚙️ Configuration Reference (`scripts/config.py`)
 
-At the moment, it mainly contains the `Training_FF/` directory because the experiments performed so far have focused on FeedForward SNNs.
+All global parameters are managed centrally in [`scripts/config.py`](file:///Users/dona/Documents/GitHub/SNNTemporalXOR/scripts/config.py):
 
-### `models/`
-
-Contains selected trained models generated through `main.py` that are considered useful or relevant for later analysis.
-
-### `optimization_results/`
-
-Contains the data generated by the Optuna hyperparameter optimization pipeline.
-
-#### → `best_models/`
-
-For each Optuna trial, the model corresponding to the **lowest validation loss reached during training** is stored.
-
-The saved model therefore does not necessarily correspond to the final epoch of the trial.
-
-This makes it possible to preserve the best-performing state reached during training and reduces the risk of selecting a model after performance has already started to degrade.
-
-#### → `checkpoints/`
-
-Stores intermediate training checkpoints at a configurable interval, currently every 10 epochs.
-
-Each checkpoint contains the information required to resume an interrupted trial, including for example:
-
-- current epoch;
-- model state;
-- optimizer state;
-- scheduler state;
-- best validation loss reached so far;
-- sampled trial parameters;
-- random-number-generator state.
-
-This allows long optimization runs to be interrupted and resumed without restarting the current trial from scratch.
-
-#### → `hyperparameter_optimization.db`
-
-SQLite database used by Optuna to store the complete optimization study.
-
-It contains information about every trial, including:
-
-- sampled hyperparameters;
-- trial state;
-- intermediate objective values;
-- final objective values;
-- completed and pruned trials.
-
-#### → `optimization_config.json`
-
-Stores the configuration associated with the current hyperparameter optimization study.
-
-Before resuming an existing study, the script compares the stored configuration with the current one.
-
-If relevant parameters or search-space definitions have changed, the user can start a new optimization instead of incorrectly continuing the previous study.
-
-#### → `archive/`
-
-When a new hyperparameter optimization is started, the results of the previous optimization are moved into a timestamped directory inside `archive/`.
-
-This preserves previous:
-
-- Optuna databases;
-- optimization configurations;
-- checkpoints;
-- best models.
-
-As a result, previous optimization experiments remain reproducible and can be analyzed later.
-
-### `robustness_results/`
-
-Contains the results produced by the robustness tests.
-
-Each execution is stored in a timestamped directory together with the relevant configuration, summary statistics, complete training histories and plots.
+| Parameter | Default Value | Description |
+| :--- | :--- | :--- |
+| `SIGN_A`, `SIGN_B` | `10, 10` | Duration (timesteps) of input signals A and B |
+| `GAP` | `30` | Number of timesteps separating signal A and signal B |
+| `READOUT` | `10` | Timesteps allocated to the terminal readout pulse |
+| `PROB_0`, `PROB_1` | `0.3, 0.6` | Spike firing probabilities representing bit 0 and bit 1 |
+| `NOISE_SPIKES` | `3` | Number of disturbance spikes injected into the temporal gap |
+| `BETA` | `0.95` | LIF membrane potential decay factor ($\beta = e^{-\Delta t / \tau}$) |
+| `INPUT_LAYER`, `HIDDEN_LAYER` | `3, 100` | Network dimensions (Channels A, B, Readout $\to$ Hidden) |
+| `FLUCT_XI` | `1.223` | Fluctuation-driven initialization scaling factor |
 
 ---
 
-## Scripts
+## 💻 Hardware Acceleration
 
-### → `main.py`
+The pipeline dynamically chooses the most efficient execution device based on computed batch workload:
 
-Main entry point for standard network training, validation and testing.
-
-It manages:
-
-- model training;
-- validation;
-- evaluation;
-- plotting;
-- model loading and saving.
-
-It also allows previously trained models to be loaded instead of retraining the network from scratch.
-
-### → `optimize_hyperparameters.py`
-
-Implements the complete hyperparameter optimization pipeline using **Optuna** and **Weights & Biases**.
-
-It handles:
-
-- definition of the hyperparameter search space;
-- optimizer selection;
-- scheduler selection;
-- weight initialization strategies;
-- Optuna sampling and pruning;
-- W&B logging;
-- checkpointing;
-- interrupted-trial recovery;
-- best-model storage;
-- optimization archiving.
-
-### → `robustness_tests.py`
-
-Contains the experiments used to evaluate the robustness of the configuration selected through hyperparameter optimization.
-
-For example, the same network configuration can be trained repeatedly using different random seeds in order to measure the variability of the training procedure.
-
-### → `config.py`
-
-Contains the configuration of the current network and experiment, including parameters such as:
-
-- dataset configuration;
-- network dimensions;
-- neuron parameters;
-- number of epochs;
-- optimizer;
-- optimizer parameters;
-- learning-rate scheduler;
-- scheduler parameters;
-- device selection.
-
-Hyperparameter-search-specific ranges are instead defined directly inside `optimize_hyperparameters.py`.
-
-### → `classes.py`
-
-Defines the main project classes, including:
-
-- SNN architectures;
-- neuron layers;
-- custom dataset classes.
-
-### → `functions.py`
-
-Contains reusable helper functions for:
-
-- dataset generation;
-- DataLoader generation;
-- training;
-- validation and testing;
-- model initialization;
-- model saving and loading;
-- plotting and visualization.
+| Platform | Target Device | Notes |
+| :--- | :--- | :--- |
+| **NVIDIA GPU** | `cuda` | Automatically selected for high batch workloads |
+| **Apple Silicon** | `mps` | Enabled when workload exceeds threshold for Metal acceleration |
+| **Standard CPU** | `cpu` | Default for lightweight batch sizes to minimize tensor copy overhead |
 
 ---
 
-## Hardware & Dependencies
+## 🎓 Academic Context
 
-The project is developed in **Python 3** and relies mainly on:
-
-- `torch`
-- `snntorch`
-- `optuna`
-- `wandb`
-- `matplotlib`
-
-The code supports device-agnostic execution and can run on:
-
-- **CUDA** GPUs;
-- **Apple Metal / MPS**;
-- **CPU**.
-
-The computationally intensive hyperparameter optimization and training experiments can therefore be executed on GPU hardware when available.
+Developed as part of the Master's Thesis curriculum in **Engineering Physics** at **Politecnico di Milano**.  
+Supervised research on neuromorphic computing, bio-inspired temporal information processing, and spiking neural dynamics.
