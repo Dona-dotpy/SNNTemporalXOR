@@ -26,29 +26,11 @@ In contrast to static XOR, temporal XOR separates the presentation of input sign
   $$\tau = -\frac{\Delta t}{\ln \beta}$$
 * A terminal **Readout signal** prompts the network to release its integrated state and fire spikes corresponding to $A \oplus B$.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant In as Input Channels (A, B, Readout)
-    participant Hidden as LIF Hidden Layer (Leaky Integration)
-    participant Out as LIF Output Layer
-    
-    Note over In,Hidden: t = 0..10: Input A spike train (30% or 60% rate)
-    In->>Hidden: Poisson-like spikes (Signal A)
-    Note over Hidden: Sub-threshold potential integration
-    
-    Note over In,Hidden: t = 10..40: Temporal GAP (Memory Persistence + Optional Noise)
-    In-->>Hidden: Quiescent gap / Stochastic noise spikes
-    Note over Hidden: Exponential decay of membrane potential: V(t) = V_0 * beta^(t)
-    
-    Note over In,Hidden: t = 40..50: Input B spike train (30% or 60% rate)
-    In->>Hidden: Poisson-like spikes (Signal B)
-    Note over Hidden: Non-linear temporal combination of A and B
-    
-    Note over In,Out: t = 50..60: Readout Window
-    In->>Out: Readout driving current (Channel R = 1)
-    Out-->>Out: Output spikes: Class 0 vs Class 1 (ArgMax of spike counts)
-```
+<div align="center">
+
+![Temporal XOR Architecture and Pipeline](images/temporal_xor_architecture.svg)
+
+</div>
 
 ---
 
