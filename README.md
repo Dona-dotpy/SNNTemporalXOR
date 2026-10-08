@@ -105,9 +105,9 @@ python scripts/robustness.py
 ```
 
 ### 4. Hyperparameter Search
-Launch an automated Optuna search sweep:
+Launch a config-driven Optuna search sweep (default: `test_2_nominal_50neurons.json`):
 ```bash
-python scripts/optimize_hyperparameters.py
+python scripts/optimize_hyperparameters.py --config test_2_nominal_50neurons.json
 ```
 
 ---
@@ -121,12 +121,13 @@ SNNTemporalXOR/
 │
 ├── models/                            # Serialized PyTorch model weights (.pth)
 │
-├── optimization_results/              # Artifacts from Optuna optimization
-│   ├── best_models/                   # Models preserved at lowest validation loss
-│   ├── checkpoints/                   # Trial checkpoints for resilient recovery
-│   ├── archive/                       # Archived historical optimization runs
-│   ├── hyperparameter_optimization.db # Persistent SQLite database
-│   └── optimization_config.json       # Active search space configuration
+├── optimization/                      # Config-driven Optuna optimization suite
+│   ├── inputs/                        # Study configuration JSON files (search spaces, fixed params)
+│   │   ├── test_1_broad_100neurons.json
+│   │   └── test_2_nominal_50neurons.json
+│   └── studies/                       # Isolated environments per experiment
+│       ├── test_1_broad_100neurons/   # Historical baseline run (1000 trials, SQLite DB, checkpoints)
+│       └── test_2_nominal_50neurons/  # Mini-HPO 50-neuron run (DB, config snapshot, best models)
 │
 ├── robustness_results/                # Test outputs, JSON summaries and figures
 │
@@ -136,7 +137,7 @@ SNNTemporalXOR/
 │   ├── functions.py                   # Data coding, training loops, metrics and plotting
 │   ├── main.py                        # Primary training, testing and interactive loading
 │   ├── robustness.py                  # Robustness testing suite (seeds, gaps, noise)
-│   └── optimize_hyperparameters.py    # Optuna & W&B search pipeline
+│   └── optimize_hyperparameters.py    # Config-driven Optuna & W&B search pipeline
 │
 └── README.md                          # Project documentation
 ```

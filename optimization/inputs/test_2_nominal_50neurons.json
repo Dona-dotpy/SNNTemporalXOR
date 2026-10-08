@@ -1,0 +1,55 @@
+{
+    "study_name": "test_2_nominal_50neurons",
+    "description": "Mini-HPO nominale a 50 neuroni con AdamW, fluctuation-driven e scheduler mirati",
+    "target_trials": 150,
+    "epochs": 1000,
+    "checkpoint_interval": 10,
+    "objective": "nominal",
+    "seed": 1542,
+    "pruner": {
+        "type": "MedianPruner",
+        "n_startup_trials": 20,
+        "n_warmup_steps": 300
+    },
+    "sampler": {
+        "type": "TPESampler",
+        "seed": 1542
+    },
+    "enqueued_trials": [
+        {
+            "lr": 0.0062979,
+            "fluct_xi": 1.2235,
+            "scheduler": "MultiStepLR",
+            "multistep_pattern": "25_50_75",
+            "multistep_gamma": 0.7726
+        }
+    ],
+    "fixed_params": {
+        "hidden_layer": 50,
+        "optimizer": "AdamW",
+        "amsgrad": false,
+        "weight_decay": 1e-06,
+        "beta1": 0.85,
+        "beta2": 0.953,
+        "initialization": "fluctuation_driven"
+    },
+    "search_space": {
+        "lr_min": 0.003,
+        "lr_max": 0.012,
+        "fluct_xi_min": 1.0,
+        "fluct_xi_max": 1.7,
+        "schedulers": [
+            "LinearLR",
+            "MultiStepLR"
+        ],
+        "linear_start_factor_min": 0.2,
+        "linear_start_factor_max": 0.9,
+        "linear_iters_min_frac": 0.01,
+        "linear_iters_max_frac": 0.30,
+        "multistep_patterns": [
+            "25_50_75"
+        ],
+        "multistep_gamma_min": 0.5,
+        "multistep_gamma_max": 0.9
+    }
+}
