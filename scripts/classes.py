@@ -32,7 +32,8 @@ class TemporalXORDataset(Dataset):
         consistent training epochs and validation splits.
     """
     def __init__(self, num_samples=config.NUM_SAMPLES, len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, 
-                 len_sign_r=config.READOUT, gap=config.GAP, noise_spikes=config.NOISE_SPIKES):
+                 len_sign_r=config.READOUT, gap=config.GAP, noise_spikes=config.NOISE_SPIKES, 
+                 prob_0 = config.PROB_0, prob_1 = config.PROB_1):
         self.num_samples = num_samples
         self.samples = []
         self.labels = []
@@ -40,7 +41,8 @@ class TemporalXORDataset(Dataset):
         # Let's fill the dataset with the number of samples we estabilished
         for _ in range(num_samples):
             A, B = torch.randint(0,2, (1,)).item(), torch.randint(0,2, (1,)).item()
-            Data, label, metrics = functions.XOR(A, B, len_sign_a, len_sign_b, len_sign_r, gap, noise_spikes)
+            Data, label, metrics = functions.XOR(A, B, len_sign_a, len_sign_b, len_sign_r, gap, 
+                                                 noise_spikes, prob_0, prob_1)
             self.samples.append(Data)
             self.labels.append(label)
 

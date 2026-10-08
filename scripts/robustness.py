@@ -1,5 +1,16 @@
 """
-The aim of this script is to test the robustness of the script under different conditions
+Robustness and Generalization Evaluation Suite for SNN Models.
+
+Evaluates network stability and temporal memory under varying conditions:
+- Seed Invariance: measures training reproducibility across independent seeds.
+- Gap Scaling (Training): trains models from scratch over different temporal gaps.
+- Gap Scaling (Frozen Model): tests temporal memory persistence of a pre-trained model
+  over varying gap lengths across multiple stochastic test datasets (mean ± std).
+- Gap Noise Analysis: measures sensitivity to disturbance spikes injected during the gap.
+- Probability Sensitivity: evaluates resilience to variations in spike emission probabilities (P0, P1).
+- Gap-Noise Interaction: evaluates 3D resilience surface crossing temporal GAP length and noise count.
+
+Automatically logs metrics, curves, and summary CSVs in 'robustness_results/'.
 """
 
 ## --- Libraries ---
@@ -17,12 +28,57 @@ from datetime import datetime
 
 SEEDS = [i for i in range(1000,1020)]
 GAPS = [0, 10, 15, 20, 25, 30, 35, 40, 50, 60, 80, 100]
+# Fixed disturbance spike positions inside GAP (Channel A: 0-29, Channel B: 30-59)
+# Systematically sampled disturbance spikes spanning GAP [0, 30] (A: 0-29, B: 30-59)
+NOISE = {
+    # 1 Spike: no mixed possible (7 points per channel)
+    1: [
+        # Channel A
+        (3,), (7,), (11,), (15,), (19,), (23,), (27,),
+        # Channel B (+30)
+        (33,), (37,), (41,), (45,), (49,), (53,), (57,),
+    ],
+
+    # 2 Spikes: 1 on A + 1 on B for mixed (7 points per line)
+    2: [
+        # Channel A
+        (2, 4), (6, 8), (10, 12), (14, 16), (18, 20), (22, 24), (26, 28),
+        # Channel B (+30)
+        (32, 34), (36, 38), (40, 42), (44, 46), (48, 50), (52, 54), (56, 58),
+        # Mixed (1 on A, 1 on B synchronous at time t)
+        (3, 33), (7, 37), (11, 41), (15, 45), (19, 49), (23, 53), (27, 57),
+    ],
+
+    # 3 Spikes: 2 on A + 1 on B for mixed (6 points per line)
+    3: [
+        # Channel A
+        (3, 5, 7), (7, 9, 11), (11, 13, 15), (15, 17, 19), (19, 21, 23), (23, 25, 27),
+        # Channel B (+30)
+        (33, 35, 37), (37, 39, 41), (41, 43, 45), (45, 47, 49), (49, 51, 53), (53, 55, 57),
+        # Mixed (2 on A, 1 on B centered at time t)
+        (4, 6, 35), (8, 10, 39), (12, 14, 43), (16, 18, 47), (20, 22, 51), (24, 26, 55),
+    ],
+
+    # 4 Spikes: 2 on A + 2 on B for mixed (6 points per line)
+    4: [
+        # Channel A
+        (3, 5, 7, 9), (7, 9, 11, 13), (11, 13, 15, 17), (15, 17, 19, 21), (19, 21, 23, 25), (23, 25, 27, 29),
+        # Channel B (+30)
+        (33, 35, 37, 39), (37, 39, 41, 43), (41, 43, 45, 47), (45, 47, 49, 51), (49, 51, 53, 55), (53, 55, 57, 59),
+        # Mixed (2 on A + 2 on B symmetric at time t)
+        (4, 6, 34, 36), (8, 10, 38, 40), (12, 14, 42, 44), (16, 18, 46, 48), (20, 22, 50, 52), (24, 26, 54, 56),
+    ],
+}
+PROB_0 = [round(x * 0.02, 2) for x in range(10, 21)]        # 0.20 to 0.40 (step 0.02)
+PROB_1 = [round(x * 0.02, 2) for x in range(25, 36)]        # 0.50 to 0.70 (step 0.02)
+GAP_NOISE_GAPS = [10, 15, 20, 25, 30, 35, 40]              # temporal gaps evaluated against noise
+GAP_NOISE_COUNTS = [0, 1, 2, 3, 4]                          # noise spike counts injected in GAP
 
 ## --- Functions ---
 
 # different training conditions
 
-def robustness_train_different_seeds(model_class, train_loader, val_loader, optimizer_class=config.OPTIMIZER,
+def robustness_train_seeds(model_class, train_loader, val_loader, optimizer_class=config.OPTIMIZER,
                                     optimizer_params = config.OPTIMIZER_PARAMS, loss_fn_class=config.LOSS_FN, 
                                     scheduler_class = config.SCHEDULER, scheduler_params = config.SCHEDULER_PARAMS):
 
@@ -130,7 +186,7 @@ def robustness_train_different_seeds(model_class, train_loader, val_loader, opti
     print(f"average accuracy is: {avg_acc}±{std_dev_acc}")
 
     save_robustness_results(
-        test_name="different_seeds",
+        test_name="different_seeds_train",
         model_class=model_class,
         results=results,
         summary=summary,
@@ -151,22 +207,15 @@ def robustness_train_different_seeds(model_class, train_loader, val_loader, opti
     plt.show()
     return avg_loss, avg_acc, std_dev_loss, std_dev_acc
 
-def robustness_train_different_gaps(model_class, optimizer_class=config.OPTIMIZER, optimizer_params = config.OPTIMIZER_PARAMS, 
-                                   loss_fn_class=config.LOSS_FN, scheduler_class = config.SCHEDULER, 
-                                   scheduler_params = config.SCHEDULER_PARAMS, seed=config.SEED):
+def robustness_train_gaps(model_class, optimizer_class=config.OPTIMIZER, optimizer_params=config.OPTIMIZER_PARAMS, 
+                          loss_fn_class=config.LOSS_FN, scheduler_class=config.SCHEDULER, 
+                          scheduler_params=config.SCHEDULER_PARAMS, train_seeds=SEEDS[:3]):
     """
     Tests the robustness of the training procedure across different temporal gaps.
 
-    For each gap defined in `GAPS`, a new dataset is generated and a new model is
-    trained from scratch using the same hyperparameter configuration and training seed.
-
-    Changing the temporal gap allows us to evaluate whether the selected training
-    configuration remains effective when the temporal distance between input A and
-    input B is modified.
-
-    For each independent training run, validation loss and accuracy are recorded at
-    every epoch. The epoch corresponding to the minimum validation loss is selected
-    and used to compare performance across the tested temporal gaps.
+    For each gap in `GAPS`, independent models are trained from scratch across multiple
+    random seeds (`train_seeds`) to separate gap difficulty from stochastic initialization
+    and optimization variance.
 
     Args:
         model_class (type): Model class to instantiate independently for each gap.
@@ -175,103 +224,125 @@ def robustness_train_different_gaps(model_class, optimizer_class=config.OPTIMIZE
         loss_fn_class (type): Loss function class.
         scheduler_class (type): Learning-rate scheduler class.
         scheduler_params (dict): Parameters passed to the scheduler constructor.
-        seed (int): Seed used to control model initialization and training stochasticity.
+        train_seeds (list): Seeds used for multi-run training per gap (default: first 3 seeds).
 
     Returns:
         tuple:
-            avg_loss (float): Mean of the minimum validation losses across tested gaps.
-            avg_acc (float): Mean validation accuracy measured at the minimum-loss
-                epoch for each tested gap.
-            std_dev_loss (float): Standard deviation of the minimum validation losses
-                across tested gaps.
-            std_dev_acc (float): Standard deviation of the corresponding validation
-                accuracies across tested gaps.
+            avg_loss (float): Mean of minimum validation losses across tested gaps.
+            avg_acc (float): Mean validation accuracy measured across tested gaps.
+            std_dev_loss (float): Standard deviation of losses across gaps.
+            std_dev_acc (float): Standard deviation of accuracies across gaps.
     """
 
-    # let's create a dictionary to store the results of validation losses and accuracies
     results = {
         "losses": [],
         "accuracies": [],
     }
     
-    # compute losses and accuracies
+    summary = []
+    mean_best_losses, std_best_losses = [], []
+    mean_val_accs, std_val_accs = [], []
+
+    # compute losses and accuracies across gaps and training seeds
     for i, gap in enumerate(GAPS):
-        # we neeed to create the dataset everytime with a different gap
-        train_dataset, val_dataset = functions.generate_train_validation_dataset(gap = gap)
-        train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
+        gap_best_losses, gap_best_accs = [], []
+        gap_final_losses, gap_final_accs = [], []
 
-        print(f"Gap test {i+1}/{len(GAPS)} - gap = {gap}...")
-        torch.manual_seed(seed)
-        model = model_class().to(config.DEVICE)
-        loss_fn = loss_fn_class()
-        functions.fluctuation_driven_initialization(model, train_loader)                        
-        optimizer = optimizer_class(model.parameters(), **optimizer_params)
-        scheduler = scheduler_class(optimizer, **scheduler_params)       
+        for s_idx, s in enumerate(train_seeds):
+            print(f"Gap train {i+1}/{len(GAPS)} (gap={gap}) - Seed {s_idx+1}/{len(train_seeds)} (seed={s})...")
+            torch.manual_seed(s)
+            train_dataset, val_dataset = functions.generate_train_validation_dataset(gap=gap)
+            train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
 
-        loss_hist, acc_hist= [], []
+            model = model_class().to(config.DEVICE)
+            functions.fluctuation_driven_initialization(model, train_loader)
+            loss_fn = loss_fn_class()
+            optimizer = optimizer_class(model.parameters(), **optimizer_params)
+            scheduler = scheduler_class(optimizer, **scheduler_params)
 
-        for _ in range(config.EPOCHS):
-            loss_train, acc_train = functions.train(model, train_loader, optimizer, loss_fn)
-            loss_test, acc_test = functions.evaluate(model, val_loader, loss_fn)
-            scheduler.step()
-            loss_hist.append(loss_test)
-            acc_hist.append(acc_test)
+            loss_hist, acc_hist = [], []
+            for _ in range(config.EPOCHS):
+                loss_train, acc_train = functions.train(model, train_loader, optimizer, loss_fn)
+                loss_val, acc_val = functions.evaluate(model, val_loader, loss_fn)
+                scheduler.step()
+                loss_hist.append(loss_val)
+                acc_hist.append(acc_val)
 
-        results["losses"].append(loss_hist)
-        results["accuracies"].append(acc_hist)
+            results["losses"].append(loss_hist)
+            results["accuracies"].append(acc_hist)
 
-    # plot the results and store them
-    fig, ax = plt.subplots(1, 2, figsize = (12,4), squeeze=False)
-    for i in range(len(results["losses"])):
-        loss = results["losses"][i]
-        acc = results["accuracies"][i]
-        gap = GAPS[i]
-        ax[0, 0].plot(loss, label=f"GAP = {gap}")
-        ax[0, 1].plot(acc, label=f"GAP = {gap}")
-    ax[0, 0].set_title("Validation losses")
+            best_ep = loss_hist.index(min(loss_hist))
+            gap_best_losses.append(loss_hist[best_ep])
+            gap_best_accs.append(acc_hist[best_ep])
+            gap_final_losses.append(loss_hist[-1])
+            gap_final_accs.append(acc_hist[-1])
+
+        m_loss = sum(gap_best_losses) / len(gap_best_losses)
+        s_loss = torch.tensor(gap_best_losses).std().item() if len(gap_best_losses) > 1 else 0.0
+        m_acc = sum(gap_best_accs) / len(gap_best_accs)
+        s_acc = torch.tensor(gap_best_accs).std().item() if len(gap_best_accs) > 1 else 0.0
+
+        mean_best_losses.append(m_loss)
+        std_best_losses.append(s_loss)
+        mean_val_accs.append(m_acc)
+        std_val_accs.append(s_acc)
+
+        summary.append({
+            "gap": gap,
+            "mean_best_val_loss": m_loss,
+            "std_best_val_loss": s_loss,
+            "mean_val_accuracy": m_acc,
+            "std_val_accuracy": s_acc,
+            "min_val_accuracy": min(gap_best_accs),
+            "max_val_accuracy": max(gap_best_accs),
+            "num_seeds": len(train_seeds)
+        })
+
+    # Relative degradation Delta A against nominal GAP
+    nom_idx = GAPS.index(config.GAP) if config.GAP in GAPS else None
+    nom_acc = mean_val_accs[nom_idx] if nom_idx is not None else 100.0
+    for row in summary:
+        row["delta_accuracy"] = row["mean_val_accuracy"] - nom_acc
+
+    # Plot validation loss and accuracy histories across all runs
+    fig, ax = plt.subplots(1, 2, figsize=(12, 4), squeeze=False)
+    run_idx = 0
+    for gap in GAPS:
+        for s in train_seeds:
+            loss = results["losses"][run_idx]
+            acc = results["accuracies"][run_idx]
+            run_idx += 1
+            ax[0, 0].plot(loss, alpha=0.5, label=f"GAP={gap}" if s == train_seeds[0] else "")
+            ax[0, 1].plot(acc, alpha=0.5, label=f"GAP={gap}" if s == train_seeds[0] else "")
+    ax[0, 0].set_title("Validation losses across training runs")
     ax[0, 0].set_ylabel("Loss")
-    ax[0, 1].set_title("Validation accuracies")
-    ax[0, 1].set_ylabel("Accuracy")
+    ax[0, 1].set_title("Validation accuracies across training runs")
+    ax[0, 1].set_ylabel("Accuracy (%)")
     ax[0, 0].legend()
     ax[0, 1].legend()
-    fig.suptitle("Gap Robustness train test")
+    fig.suptitle("Gap Robustness Training Curves")
     fig.tight_layout()
 
-    # compute average loss and accuracies
-    best_losses, best_accs, summary = [], [], []
-    for losses, accs, gap in zip(results["losses"], results["accuracies"], GAPS):
-        best_epoch = losses.index(min(losses))
-        best_losses.append(losses[best_epoch])
-        best_accs.append(accs[best_epoch])
-        summary.append({
-                "gap": gap,
-                "best_epoch": best_epoch,
-                "best_val_loss": losses[best_epoch],
-                "val_accuracy_at_best_loss": accs[best_epoch],
-                "final_val_loss": losses[-1],
-                "final_val_accuracy": accs[-1]
-            })
-        
-    # Plot the best validation loss and corresponding accuracy as a function of the temporal gap
+    # Plot mean and std error bars across independent training seeds
     fig_gap, ax_gap = plt.subplots(1, 2, figsize=(12, 4))
-    ax_gap[0].plot(GAPS, best_losses, marker="o")
-    ax_gap[0].set_xlabel("Gap")
+    ax_gap[0].errorbar(GAPS, mean_best_losses, yerr=std_best_losses, fmt="o-", capsize=3)
+    ax_gap[0].set_xlabel("Gap (timesteps)")
     ax_gap[0].set_ylabel("Best validation loss")
-    ax_gap[0].set_title("Best validation loss vs GAP")
-    ax_gap[1].plot(GAPS, best_accs, marker="o")
-    ax_gap[1].set_xlabel("Gap")
+    ax_gap[0].set_title("Validation loss vs GAP (mean ± std across seeds)")
+    ax_gap[1].errorbar(GAPS, mean_val_accs, yerr=std_val_accs, fmt="o-", capsize=3)
+    ax_gap[1].set_xlabel("Gap (timesteps)")
     ax_gap[1].set_ylabel("Validation accuracy (%)")
-    ax_gap[1].set_title("Validation accuracy vs GAP")
-    fig_gap.suptitle("Performance across temporal gaps")
+    ax_gap[1].set_title("Validation accuracy vs GAP (mean ± std across seeds)")
+    fig_gap.suptitle("Training performance across temporal gaps")
     fig_gap.tight_layout()
 
-    avg_loss = sum(best_losses)/len(best_losses)
-    avg_acc = sum(best_accs)/len(best_accs)
-    std_dev_loss = torch.tensor(best_losses, dtype=torch.float).std().item()
-    std_dev_acc = torch.tensor(best_accs, dtype=torch.float).std().item()
+    avg_loss = sum(mean_best_losses) / len(mean_best_losses)
+    avg_acc = sum(mean_val_accs) / len(mean_val_accs)
+    std_dev_loss = torch.tensor(mean_best_losses, dtype=torch.float).std().item()
+    std_dev_acc = torch.tensor(mean_val_accs, dtype=torch.float).std().item()
 
-    print(f"average loss is: {avg_loss}±{std_dev_loss}")
-    print(f"average accuracy is: {avg_acc}±{std_dev_acc}")
+    print(f"Average loss across gaps: {avg_loss:.4f}±{std_dev_loss:.4f}")
+    print(f"Average accuracy across gaps: {avg_acc:.2f}%±{std_dev_acc:.2f}%")
 
     save_robustness_results(
         test_name="different_gaps_train",
@@ -298,7 +369,7 @@ def robustness_train_different_gaps(model_class, optimizer_class=config.OPTIMIZE
 
 # different test conditions
 
-def robustness_test_different_gaps(model, loss_fn_class=config.LOSS_FN, seed=config.SEED):
+def robustness_test_gaps(model, loss_fn_class=config.LOSS_FN, seed=config.SEED):
     """
     Tests the robustness of the test procedure across different temporal gaps.
 
@@ -396,6 +467,12 @@ def robustness_test_different_gaps(model, loss_fn_class=config.LOSS_FN, seed=con
             "min_test_accuracy": min(accs),                                    # worst-case dataset accuracy for this gap
             "max_test_accuracy": max(accs)                                     # best-case dataset accuracy for this gap
         })
+
+    # Relative degradation Delta A against nominal GAP
+    nom_idx = GAPS.index(config.GAP) if config.GAP in GAPS else None
+    nom_acc = mean_accs[nom_idx] if nom_idx is not None else 100.0
+    for row in summary:
+        row["delta_accuracy"] = row["mean_test_accuracy"] - nom_acc
         
     # Plot the best validation loss and corresponding accuracy as a function of the temporal gap
     fig_gap, ax_gap = plt.subplots(1, 2, figsize=(12, 4))
@@ -431,6 +508,496 @@ def robustness_test_different_gaps(model, loss_fn_class=config.LOSS_FN, seed=con
         summary_fig=fig_gap,
         tested_parameter_name="gap",
         tested_parameter_values=GAPS,
+        loss_fn_class=loss_fn_class,
+    )
+
+    plt.show()
+    return avg_loss, avg_acc, std_dev_loss, std_dev_acc
+
+def robustness_test_noise(model, loss_fn_class=config.LOSS_FN, gap=config.GAP, seed=config.SEED):
+    """
+    Evaluates model robustness against disturbance spikes injected into the temporal GAP.
+
+    For each configuration in `NOISE` (1 to 4 disturbance spikes), multiple test datasets 
+    are generated across independent seeds. Evaluates performance as a function of the 
+    temporal position (early, mid, late) and channel assignment (Channel A vs Channel B).
+
+    Args:
+        model (torch.nn.Module): Pre-trained frozen model to evaluate.
+        loss_fn_class (type): Criterion class used for loss computation.
+        seed (int): Base seed for deterministic test set generation.
+        gap (int): Temporal duration of the GAP between input A and input B.
+
+    Returns:
+        tuple:
+            avg_loss (float): Global mean test loss across all noise configurations.
+            avg_acc (float): Global mean test accuracy across all noise configurations.
+            std_dev_loss (float): Standard deviation of test loss across configurations.
+            std_dev_acc (float): Standard deviation of test accuracy across configurations.
+    """
+    if gap != 30:
+        raise ValueError(
+            f"The positional NOISE dictionary is geometrically calibrated for GAP=30 (got {gap}). "
+            f"For variable gap tests with noise, use robustness_test_gap_noise()."
+        )
+
+    model.to(config.DEVICE)
+
+    # dictionary storing full seed histories, temporal metrics and channel labels
+    results = {
+        "losses": {1: [], 2: [], 3: [], 4: []},
+        "accuracies": {1: [], 2: [], 3: [], 4: []},
+        "metrics": {1: [], 2: [], 3: [], 4: []},
+        "channels": {1: [], 2: [], 3: [], 4: []},
+    }
+
+    total_runs = sum(len(v) for v in NOISE.values()) * config.N_ROBUSTNESS_DATASET
+    run_counter = 0
+
+    # inference across noise configurations and independent seeds
+    for i in range(1, 5):
+        for j, spikes in enumerate(NOISE[i]):
+            loss_hist, acc_hist = [], []
+            for N in range(config.N_ROBUSTNESS_DATASET):
+                run_counter += 1
+                test_dataset = functions.generate_test_dataset(gap=gap, seed=seed + N, noise_spikes=spikes)
+                test_loader = functions.generate_test_dataloader(test_dataset)
+
+                print(f"Noise test {run_counter}/{total_runs} - {i} spikes: {spikes}...")
+                loss_fn = loss_fn_class()
+
+                # frozen model single pass evaluation
+                loss_test, acc_test = functions.evaluate(model, test_loader, loss_fn)
+                loss_hist.append(loss_test)
+                acc_hist.append(acc_test)
+
+            # determine channel assignment and mean timestep inside GAP
+            channel = "A" if all(s < gap for s in spikes) else ("B" if all(s >= gap for s in spikes) else "Mixed")
+            t_metric = sum(s if s < gap else (s - gap) for s in spikes) / len(spikes)
+
+            results["losses"][i].append(loss_hist)           # full history across N seeds
+            results["accuracies"][i].append(acc_hist)        # full history across N seeds
+            results["metrics"][i].append(t_metric)           # mean timestep in GAP [0, 30]
+            results["channels"][i].append(channel)          # channel label ('A', 'B', 'Mixed')
+
+    # unified analysis, summary compilation and detailed curves plotting
+    all_mean_losses, all_mean_accs = [], []
+    summary = []
+    fig, ax = plt.subplots(4, 2, figsize=(12, 16), squeeze=False)
+
+    for i in range(1, 5):
+        # compute mean values and variances of losses and accuracies
+        mean_l = [sum(h) / len(h) for h in results["losses"][i]]
+        std_l  = [torch.tensor(h).std().item() for h in results["losses"][i]]
+        mean_a = [sum(h) / len(h) for h in results["accuracies"][i]]
+        std_a  = [torch.tensor(h).std().item() for h in results["accuracies"][i]]
+
+        # similar to append but we concatenate every number in a unique list
+        all_mean_losses.extend(mean_l)
+        all_mean_accs.extend(mean_a)
+
+        # populate summary records reusing computed values
+        for j, spikes in enumerate(NOISE[i]):
+            summary.append({
+                "num_spikes": i,
+                "spike_positions": str(spikes),
+                "channel": results["channels"][i][j],
+                "time_in_gap": results["metrics"][i][j],
+                "mean_test_loss": mean_l[j],
+                "std_test_loss": std_l[j],
+                "mean_test_accuracy": mean_a[j],
+                "std_test_accuracy": std_a[j],
+                "delta_accuracy": mean_a[j] - 100.0,            # relative degradation from clean nominal baseline (100%)
+                "min_test_accuracy": min(results["accuracies"][i][j]),
+                "max_test_accuracy": max(results["accuracies"][i][j]),
+            })
+
+        # plot channel-separated curves with standard deviation bars
+        for col, (vals, stds, ylabel) in enumerate([(mean_l, std_l, "Loss"), (mean_a, std_a, "Accuracy (%)")]):
+            curr_ax = ax[i - 1, col]
+            for ch_label, marker, style in [("A", "o-", "Channel A"), ("B", "s--", "Channel B"), ("Mixed", "^", "Mixed A+B")]:
+                idxs = [k for k, ch in enumerate(results["channels"][i]) if ch == ch_label]
+                if idxs:
+                    curr_ax.errorbar([results["metrics"][i][k] for k in idxs], [vals[k] for k in idxs],
+                                     yerr=[stds[k] for k in idxs], fmt=marker, label=style, capsize=3)
+            curr_ax.set_title(f"{ylabel} - {i} Spikes")
+            curr_ax.set_xlabel("Time in GAP (timesteps)")
+            curr_ax.set_ylabel(ylabel)
+            curr_ax.legend()
+
+    fig.suptitle("Spike Robustness Test across GAP")
+    fig.tight_layout()
+
+    # summary figure: performance scaling as a function of the disturbance spike count
+    fig_noise, ax_noise = plt.subplots(1, 2, figsize=(12, 4))
+    spike_counts = list(NOISE.keys())
+    spike_mean_losses = [sum(m["mean_test_loss"] for m in summary if m["num_spikes"] == k) / len([m for m in summary if m["num_spikes"] == k]) for k in spike_counts]
+    spike_mean_accs   = [sum(m["mean_test_accuracy"] for m in summary if m["num_spikes"] == k) / len([m for m in summary if m["num_spikes"] == k]) for k in spike_counts]
+
+    ax_noise[0].plot(spike_counts, spike_mean_losses, marker="o")
+    ax_noise[0].set_xlabel("Noise Spikes")
+    ax_noise[0].set_ylabel("Mean test loss")
+    ax_noise[0].set_title("Mean test loss vs Noise Spikes")
+    ax_noise[0].set_xticks(spike_counts)
+    ax_noise[1].plot(spike_counts, spike_mean_accs, marker="o")
+    ax_noise[1].set_xlabel("Noise Spikes")
+    ax_noise[1].set_ylabel("Test accuracy (%)")
+    ax_noise[1].set_title("Test accuracy vs Noise Spikes")
+    ax_noise[1].set_xticks(spike_counts)
+    fig_noise.suptitle("Performance across noise spikes count")
+    fig_noise.tight_layout()
+
+    # compute global statistics across all tested conditions
+    avg_loss = sum(all_mean_losses) / len(all_mean_losses)
+    avg_acc  = sum(all_mean_accs) / len(all_mean_accs)
+    std_dev_loss = torch.tensor(all_mean_losses, dtype=torch.float).std().item()
+    std_dev_acc  = torch.tensor(all_mean_accs, dtype=torch.float).std().item()
+
+    print(f"average loss is: {avg_loss}±{std_dev_loss}")
+    print(f"average accuracy is: {avg_acc}±{std_dev_acc}")
+
+    # archive results, metadata, summary CSV, and both figures
+    save_robustness_results(
+        test_name="different_noise_test",
+        model_class=model.__class__,
+        results=results,
+        summary=summary,
+        avg_loss=avg_loss,
+        avg_acc=avg_acc,
+        std_dev_loss=std_dev_loss,
+        std_dev_acc=std_dev_acc,
+        fig=fig,
+        summary_fig=fig_noise,
+        tested_parameter_name="noise_spikes",
+        tested_parameter_values=spike_counts,
+        loss_fn_class=loss_fn_class,
+    )
+
+    plt.show()
+    return avg_loss, avg_acc, std_dev_loss, std_dev_acc
+
+def robustness_test_probabilities(model, loss_fn_class=config.LOSS_FN, gap=config.GAP, seed=config.SEED):
+    """
+    Tests the theoretical resilience of a pre-trained frozen model against variations
+    in spike generation probabilities (prob_0 for bit 0, prob_1 for bit 1).
+
+    Evaluates performance over a 2D grid (PROB_0 x PROB_1) across multiple stochastic
+    test datasets, generating contour surfaces for test loss and accuracy.
+
+    Args:
+        model (torch.nn.Module): Pre-trained model to evaluate.
+        loss_fn_class (type): Loss function class.
+        gap (int): Temporal gap between input tokens.
+        seed (int): Base seed for dataset generation stochasticity.
+
+    Returns:
+        tuple:
+            avg_loss (float): Mean test loss across all tested probability pairs.
+            avg_acc (float): Mean test accuracy across all tested probability pairs.
+            std_dev_loss (float): Standard deviation of test loss across pairs.
+            std_dev_acc (float): Standard deviation of test accuracy across pairs.
+    """
+
+    model.to(config.DEVICE)
+
+    results = {
+        "losses": [],
+        "accuracies": [],
+    }
+
+    # 2D matrices for contour plotting: shape (len(PROB_1), len(PROB_0)) -> Y: prob_1, X: prob_0
+    z_loss = torch.zeros((len(PROB_1), len(PROB_0)))                    # grid for mean loss surface
+    z_acc = torch.zeros((len(PROB_1), len(PROB_0)))                     # grid for mean accuracy surface
+    summary = []
+
+    tot_test = len(PROB_0) * len(PROB_1) * config.N_ROBUSTNESS_DATASET
+
+    # compute losses and accuracies across the 2D grid
+    for i, prob_0 in enumerate(PROB_0):
+        for j, prob_1 in enumerate(PROB_1):
+            loss_hist, acc_hist = [], []
+            for N in range(config.N_ROBUSTNESS_DATASET):
+                test_dataset = functions.generate_test_dataset(
+                    gap=gap, prob_0=prob_0, prob_1=prob_1, seed=seed + N
+                )
+                test_loader = functions.generate_test_dataloader(test_dataset)
+
+                test_idx = i * len(PROB_1) * config.N_ROBUSTNESS_DATASET + j * config.N_ROBUSTNESS_DATASET + N + 1
+                print(f"Probability test {test_idx}/{tot_test} - Probs -> 0: {prob_0} - 1: {prob_1}")
+
+                loss_fn = loss_fn_class()
+                loss_test, acc_test = functions.evaluate(model, test_loader, loss_fn)
+                loss_hist.append(loss_test)
+                acc_hist.append(acc_test)
+
+            results["losses"].append(loss_hist)
+            results["accuracies"].append(acc_hist)
+
+            m_loss = sum(loss_hist) / len(loss_hist)
+            s_loss = torch.tensor(loss_hist).std().item() if len(loss_hist) > 1 else 0.0
+            m_acc = sum(acc_hist) / len(acc_hist)
+            s_acc = torch.tensor(acc_hist).std().item() if len(acc_hist) > 1 else 0.0
+
+            z_loss[j, i] = m_loss                                       # row j: prob_1 (Y), col i: prob_0 (X)
+            z_acc[j, i] = m_acc
+
+            summary.append({
+                "prob_0": prob_0,
+                "prob_1": prob_1,
+                "mean_test_loss": m_loss,
+                "std_test_loss": s_loss,
+                "mean_test_accuracy": m_acc,
+                "std_test_accuracy": s_acc,
+                "min_test_accuracy": min(acc_hist),
+                "max_test_accuracy": max(acc_hist)
+            })
+
+    # 3D grid mesh for surface and contour plotting
+    p0_grid, p1_grid = torch.meshgrid(torch.tensor(PROB_0), torch.tensor(PROB_1), indexing="xy")
+
+    # Nominal point coordinates
+    nom_i, nom_j = PROB_0.index(config.PROB_0), PROB_1.index(config.PROB_1)
+    nom_loss, nom_acc = z_loss[nom_j, nom_i].item(), z_acc[nom_j, nom_i].item()
+    for row in summary:
+        row["delta_accuracy"] = row["mean_test_accuracy"] - nom_acc
+
+    # 3D figures with contour lines plotted directly on the 3D elevation
+    fig = plt.figure(figsize=(15, 6))
+
+    # Loss 3D surface + 3D contour lines
+    ax_loss = fig.add_subplot(1, 2, 1, projection="3d")
+    surf_loss = ax_loss.plot_surface(
+        p0_grid.numpy(), p1_grid.numpy(), z_loss.numpy(),
+        cmap="viridis", alpha=0.65, edgecolor="none"                    # translucent 3D terrain
+    )
+    c_loss = ax_loss.contour(
+        p0_grid.numpy(), p1_grid.numpy(), z_loss.numpy(),
+        levels=12, colors="black", linewidths=1.2                       # contour curves at actual Z height
+    )
+    ax_loss.scatter([config.PROB_0], [config.PROB_1], [nom_loss], color="red", s=130, label="Nominal (0.3, 0.6)")
+    ax_loss.set_title("Test Loss 3D Contour Surface")
+    ax_loss.set_xlabel("P0 (Bit 0 prob)")
+    ax_loss.set_ylabel("P1 (Bit 1 prob)")
+    ax_loss.set_zlabel("Mean Test Loss")
+    fig.colorbar(surf_loss, ax=ax_loss, shrink=0.5, aspect=10, pad=0.1, label="Loss")
+    ax_loss.legend()
+
+    # Accuracy 3D surface + 3D contour lines
+    ax_acc = fig.add_subplot(1, 2, 2, projection="3d")
+    surf_acc = ax_acc.plot_surface(
+        p0_grid.numpy(), p1_grid.numpy(), z_acc.numpy(),
+        cmap="magma", alpha=0.65, edgecolor="none"                      # translucent 3D terrain
+    )
+    c_acc = ax_acc.contour(
+        p0_grid.numpy(), p1_grid.numpy(), z_acc.numpy(),
+        levels=12, colors="black", linewidths=1.2                       # contour curves at actual Z height
+    )
+    ax_acc.scatter([config.PROB_0], [config.PROB_1], [nom_acc], color="cyan", s=130, label="Nominal (0.3, 0.6)")
+    ax_acc.set_title("Test Accuracy 3D Contour Surface")
+    ax_acc.set_xlabel("P0 (Bit 0 prob)")
+    ax_acc.set_ylabel("P1 (Bit 1 prob)")
+    ax_acc.set_zlabel("Test Accuracy (%)")
+    fig.colorbar(surf_acc, ax=ax_acc, shrink=0.5, aspect=10, pad=0.1, label="Accuracy (%)")
+    ax_acc.legend()
+
+    fig.suptitle("Spike Generation Probability Robustness (3D Contours)")
+    fig.tight_layout()
+
+    all_mean_losses = [row["mean_test_loss"] for row in summary]
+    all_mean_accs = [row["mean_test_accuracy"] for row in summary]
+    avg_loss = sum(all_mean_losses) / len(all_mean_losses)
+    avg_acc = sum(all_mean_accs) / len(all_mean_accs)
+    std_dev_loss = torch.tensor(all_mean_losses, dtype=torch.float).std().item()
+    std_dev_acc = torch.tensor(all_mean_accs, dtype=torch.float).std().item()
+
+    print(f"Average loss across (P0, P1) grid: {avg_loss:.4f}±{std_dev_loss:.4f}")
+    print(f"Average accuracy across (P0, P1) grid: {avg_acc:.2f}%±{std_dev_acc:.2f}%")
+
+    save_robustness_results(
+        test_name="different_probabilities_test",
+        model_class=model.__class__,
+        results=results,
+        summary=summary,
+        avg_loss=avg_loss,
+        avg_acc=avg_acc,
+        std_dev_loss=std_dev_loss,
+        std_dev_acc=std_dev_acc,
+        fig=fig,
+        tested_parameter_name="probabilities",
+        tested_parameter_values={"prob_0": PROB_0, "prob_1": PROB_1},
+        loss_fn_class=loss_fn_class,
+    )
+
+    plt.show()
+    return avg_loss, avg_acc, std_dev_loss, std_dev_acc
+
+def robustness_test_gap_noise(model, loss_fn_class=config.LOSS_FN, seed=config.SEED):
+    """
+    Tests the theoretical resilience of a pre-trained frozen model across simultaneous
+    variations in temporal gap duration and disturbance noise spike count.
+
+    Evaluates performance over a 2D parameter grid (GAP_NOISE_GAPS x GAP_NOISE_COUNTS)
+    where noise spikes are stochastically distributed in the gap across multiple
+    independent test datasets. Renders a 3D surface plot with elevation contour lines.
+
+    Args:
+        model (torch.nn.Module): Pre-trained model to evaluate.
+        loss_fn_class (type): Loss function class.
+        seed (int): Base seed for dataset generation stochasticity.
+
+    Returns:
+        tuple:
+            avg_loss (float): Mean test loss across all tested (gap, noise) conditions.
+            avg_acc (float): Mean test accuracy across all tested (gap, noise) conditions.
+            std_dev_loss (float): Standard deviation of test loss across conditions.
+            std_dev_acc (float): Standard deviation of test accuracy across conditions.
+    """
+
+    model.to(config.DEVICE)
+
+    results = {
+        "losses": [],
+        "accuracies": [],
+    }
+
+    # 2D matrices for 3D surface: shape (len(GAP_NOISE_COUNTS), len(GAP_NOISE_GAPS)) -> Y: noise, X: gap
+    z_loss = torch.zeros((len(GAP_NOISE_COUNTS), len(GAP_NOISE_GAPS)))
+    z_acc = torch.zeros((len(GAP_NOISE_COUNTS), len(GAP_NOISE_GAPS)))
+    summary = []
+
+    tot_test = len(GAP_NOISE_GAPS) * len(GAP_NOISE_COUNTS) * config.N_ROBUSTNESS_DATASET
+
+    # compute losses and accuracies across the (gap, noise) grid
+    for i, gap in enumerate(GAP_NOISE_GAPS):
+        for j, noise in enumerate(GAP_NOISE_COUNTS):
+            loss_hist, acc_hist = [], []
+            for N in range(config.N_ROBUSTNESS_DATASET):
+                test_dataset = functions.generate_test_dataset(
+                    gap=gap, noise_spikes=noise, seed=seed + N
+                )
+                test_loader = functions.generate_test_dataloader(test_dataset)
+
+                test_idx = i * len(GAP_NOISE_COUNTS) * config.N_ROBUSTNESS_DATASET + j * config.N_ROBUSTNESS_DATASET + N + 1
+                print(f"Gap-Noise test {test_idx}/{tot_test} - Gap: {gap} - Noise spikes: {noise}...")
+
+                loss_fn = loss_fn_class()
+                loss_test, acc_test = functions.evaluate(model, test_loader, loss_fn)
+                loss_hist.append(loss_test)
+                acc_hist.append(acc_test)
+
+            results["losses"].append(loss_hist)
+            results["accuracies"].append(acc_hist)
+
+            m_loss = sum(loss_hist) / len(loss_hist)
+            s_loss = torch.tensor(loss_hist).std().item() if len(loss_hist) > 1 else 0.0
+            m_acc = sum(acc_hist) / len(acc_hist)
+            s_acc = torch.tensor(acc_hist).std().item() if len(acc_hist) > 1 else 0.0
+
+            z_loss[j, i] = m_loss                                       # row j: noise (Y), col i: gap (X)
+            z_acc[j, i] = m_acc
+
+            summary.append({
+                "gap": gap,
+                "noise_spikes": noise,
+                "mean_test_loss": m_loss,
+                "std_test_loss": s_loss,
+                "mean_test_accuracy": m_acc,
+                "std_test_accuracy": s_acc,
+                "min_test_accuracy": min(acc_hist),
+                "max_test_accuracy": max(acc_hist)
+            })
+
+    # 3D grid mesh for surface and contour plotting
+    gap_grid, noise_grid = torch.meshgrid(
+        torch.tensor(GAP_NOISE_GAPS, dtype=torch.float),
+        torch.tensor(GAP_NOISE_COUNTS, dtype=torch.float),
+        indexing="xy"
+    )
+
+    # Nominal point coordinates if within tested grid
+    has_nominal = (config.GAP in GAP_NOISE_GAPS) and (config.NOISE_SPIKES in GAP_NOISE_COUNTS)
+    if has_nominal:
+        nom_i = GAP_NOISE_GAPS.index(config.GAP)
+        nom_j = GAP_NOISE_COUNTS.index(config.NOISE_SPIKES)
+        nom_loss = z_loss[nom_j, nom_i].item()
+        nom_acc = z_acc[nom_j, nom_i].item()
+
+    nom_acc_val = nom_acc if has_nominal else 100.0
+    for row in summary:
+        row["delta_accuracy"] = row["mean_test_accuracy"] - nom_acc_val
+
+    # 3D figures with contour lines plotted directly on the 3D elevation
+    fig = plt.figure(figsize=(15, 6))
+
+    # Loss 3D surface + 3D contour lines
+    ax_loss = fig.add_subplot(1, 2, 1, projection="3d")
+    surf_loss = ax_loss.plot_surface(
+        gap_grid.numpy(), noise_grid.numpy(), z_loss.numpy(),
+        cmap="viridis", alpha=0.65, edgecolor="none"                    # translucent 3D terrain
+    )
+    ax_loss.contour(
+        gap_grid.numpy(), noise_grid.numpy(), z_loss.numpy(),
+        levels=12, colors="black", linewidths=1.2                       # contour curves at actual Z height
+    )
+    if has_nominal:
+        ax_loss.scatter([config.GAP], [config.NOISE_SPIKES], [nom_loss], color="red", s=130, label=f"Nominal ({config.GAP}, {config.NOISE_SPIKES})")
+    ax_loss.set_title("Test Loss 3D Surface (GAP vs Noise)")
+    ax_loss.set_xlabel("GAP Duration (timesteps)")
+    ax_loss.set_ylabel("Noise Spikes in GAP")
+    ax_loss.set_zlabel("Mean Test Loss")
+    ax_loss.set_xticks(GAP_NOISE_GAPS)
+    ax_loss.set_yticks(GAP_NOISE_COUNTS)
+    fig.colorbar(surf_loss, ax=ax_loss, shrink=0.5, aspect=10, pad=0.1, label="Loss")
+    if has_nominal:
+        ax_loss.legend()
+
+    # Accuracy 3D surface + 3D contour lines
+    ax_acc = fig.add_subplot(1, 2, 2, projection="3d")
+    surf_acc = ax_acc.plot_surface(
+        gap_grid.numpy(), noise_grid.numpy(), z_acc.numpy(),
+        cmap="magma", alpha=0.65, edgecolor="none"                      # translucent 3D terrain
+    )
+    ax_acc.contour(
+        gap_grid.numpy(), noise_grid.numpy(), z_acc.numpy(),
+        levels=12, colors="black", linewidths=1.2                       # contour curves at actual Z height
+    )
+    if has_nominal:
+        ax_acc.scatter([config.GAP], [config.NOISE_SPIKES], [nom_acc], color="cyan", s=130, label=f"Nominal ({config.GAP}, {config.NOISE_SPIKES})")
+    ax_acc.set_title("Test Accuracy 3D Surface (GAP vs Noise)")
+    ax_acc.set_xlabel("GAP Duration (timesteps)")
+    ax_acc.set_ylabel("Noise Spikes in GAP")
+    ax_acc.set_zlabel("Test Accuracy (%)")
+    ax_acc.set_xticks(GAP_NOISE_GAPS)
+    ax_acc.set_yticks(GAP_NOISE_COUNTS)
+    fig.colorbar(surf_acc, ax=ax_acc, shrink=0.5, aspect=10, pad=0.1, label="Accuracy (%)")
+    if has_nominal:
+        ax_acc.legend()
+
+    fig.suptitle("Temporal GAP vs Noise Robustness (3D Contours)")
+    fig.tight_layout()
+
+    all_mean_losses = [row["mean_test_loss"] for row in summary]
+    all_mean_accs = [row["mean_test_accuracy"] for row in summary]
+    avg_loss = sum(all_mean_losses) / len(all_mean_losses)
+    avg_acc = sum(all_mean_accs) / len(all_mean_accs)
+    std_dev_loss = torch.tensor(all_mean_losses, dtype=torch.float).std().item()
+    std_dev_acc = torch.tensor(all_mean_accs, dtype=torch.float).std().item()
+
+    print(f"Average loss across (GAP, Noise) grid: {avg_loss:.4f}±{std_dev_loss:.4f}")
+    print(f"Average accuracy across (GAP, Noise) grid: {avg_acc:.2f}%±{std_dev_acc:.2f}%")
+
+    save_robustness_results(
+        test_name="different_gap_noise_test",
+        model_class=model.__class__,
+        results=results,
+        summary=summary,
+        avg_loss=avg_loss,
+        avg_acc=avg_acc,
+        std_dev_loss=std_dev_loss,
+        std_dev_acc=std_dev_acc,
+        fig=fig,
+        tested_parameter_name="gap_vs_noise",
+        tested_parameter_values={"gaps": GAP_NOISE_GAPS, "noise_counts": GAP_NOISE_COUNTS},
         loss_fn_class=loss_fn_class,
     )
 
@@ -592,18 +1159,31 @@ def save_robustness_results(
 
     return archive_dir
 
+
 ## --- MAIN CODE ---
 
 if __name__ == "__main__":
 
     # SEED robustness test
-    # train_dataset, val_dataset = functions.generate_train_validation_dataset()
-    # train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
-    # avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_different_seeds(classes.XORSNN, train_loader, val_loader)
+    train_dataset, val_dataset = functions.generate_train_validation_dataset()
+    train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
+    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_seeds(classes.XORSNN, train_loader, val_loader)
 
     # GAP robustness train test
-    # avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_different_gaps(classes.XORSNN)
+    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_gaps(classes.XORSNN)
 
-    # GAP robustness test test
+    # GAP robustness test 
     model = functions.load_model()
-    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_test_different_gaps(model)
+    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_test_gaps(model)
+
+    # Noise robustness test
+    model = functions.load_model()
+    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_test_noise(model)
+
+    # 0-1 emission probabilities test
+    model = functions.load_model()
+    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_test_probabilities(model)
+
+    # GAP vs Noise 3D robustness test
+    model = functions.load_model()
+    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_test_gap_noise(model)

@@ -1,14 +1,12 @@
 """
-Utilities for the Temporal XOR project.
+Utility and Helper Functions for the Temporal XOR Pipeline.
 
-This module contains all the necessary helper functions for data generation, 
-training, and evaluation of the Spiking Neural Network (SNN). It also provides 
-tools for visualizing results and membrane potentials.
-
-Key features:
-    * Data Generation: Creation of time-series sequences (Inputs A, B, and Readout).
-    * Training & Validation: Training loops, loss computation, and validation steps.
-    * Plotting: Functions to visualize spikes, weights, and membrane potentials.
+Provides reusable modular components:
+- Data Generation: rate-coded XOR sequences with configurable GAP noise and metrics.
+- Training & Evaluation: forward loops, loss computation, and frozen-model evaluation.
+- Physics Initialization: fluctuation-driven synaptic weight scaling.
+- Persistence: dynamic model saving and loading from 'models/'.
+- Visualization: raster plots, membrane dynamics, and terminal ASCII plots.
 """
 
 import config, classes
@@ -24,7 +22,8 @@ import time
 
 ## -- INPUT FUNCTIONS AND DATA---
 
-def XOR(A, B, len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, gap=config.GAP, noise_spikes = config.NOISE_SPIKES):
+def XOR(A, B, len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, gap=config.GAP, 
+        noise_spikes = config.NOISE_SPIKES, prob_0 = config.PROB_0, prob_1 = config.PROB_1):
     """ Function that generates 3 input signals (Neuron A, Neuron B and Readout)
 
     We associate to the 0 the generation of fire probability of 30% for each time step, 60% for 1
@@ -49,8 +48,8 @@ def XOR(A, B, len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=con
 
     # Let's generate random permutations and take 1st 3 or 6 numbers to decide spike positions
     A_on, B_on = torch.zeros(len_sign_a), torch.zeros(len_sign_b)
-    spikes_0_A, spikes_1_A = int(len_sign_a*config.PROB_0), int(len_sign_a*config.PROB_1)
-    spikes_0_B, spikes_1_B = int(len_sign_b*config.PROB_0), int(len_sign_b*config.PROB_1)
+    spikes_0_A, spikes_1_A = int(len_sign_a*prob_0), int(len_sign_a*prob_1)
+    spikes_0_B, spikes_1_B = int(len_sign_b*prob_0), int(len_sign_b*prob_1)
     if A:
         A_on_indexes = torch.randperm(len_sign_a)[:spikes_1_A]
     else:
@@ -68,8 +67,11 @@ def XOR(A, B, len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=con
     A_off = torch.zeros(gap + len_sign_b + len_sign_r)
     B_off_b, B_off_a = torch.zeros(len_sign_a + gap), torch.zeros(len_sign_r)
 
-    # noise generation
-    noise_positions = torch.randperm(2*gap)[:noise_spikes]          # consider both channels
+    # noise generation (choosen or random)
+    if isinstance(noise_spikes, (list, tuple)):
+        noise_positions = torch.tensor(noise_spikes)
+    else:
+        noise_positions = torch.randperm(2*gap)[:noise_spikes]      # consider both channels
     for i in noise_positions:                                       # depending on the value put the spike on channel A or B
         if i >= gap:
             B_off_b[len_sign_a+i-gap] = 1
@@ -101,7 +103,8 @@ def generate_new_random_data():
     return DataLoader(classes.TemporalXORDataset(), batch_size=config.BATCH_SIZE, shuffle=False)
 
 def generate_train_validation_dataset(len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, 
-                                      gap=config.GAP, noise_spikes = config.NOISE_SPIKES):
+                                      gap=config.GAP, noise_spikes = config.NOISE_SPIKES, prob_0 = config.PROB_0, 
+                                      prob_1 = config.PROB_1):
     """
     Function that generates the Temporal XOR dataset and splits it into a train
     and a test set, using fixed seeds for reproducibility.
@@ -120,7 +123,8 @@ def generate_train_validation_dataset(len_sign_a=config.SIGN_A, len_sign_b=confi
     """
     torch.manual_seed(config.SEED)                                                      # Seed setup
     dataset = classes.TemporalXORDataset(len_sign_a=len_sign_a, len_sign_b=len_sign_b,  # Dataset allocation
-                                len_sign_r=len_sign_r, gap=gap, noise_spikes=noise_spikes)   
+                                len_sign_r=len_sign_r, gap=gap, noise_spikes=noise_spikes,
+                                prob_0 = prob_0, prob_1 = prob_1)   
     n_train = int(config.TRAIN_SPLIT * len(dataset))                                    # length of train dataset
     n_val = len(dataset) - n_train                                                     # length of test dataset
     train_dataset, val_dataset = random_split(                                                       
@@ -135,7 +139,8 @@ def generate_train_validation_dataset(len_sign_a=config.SIGN_A, len_sign_b=confi
     return train_dataset, val_dataset
 
 def generate_test_dataset(len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, 
-                          gap=config.GAP, noise_spikes = config.NOISE_SPIKES, seed = config.SEED):
+                          gap=config.GAP, noise_spikes = config.NOISE_SPIKES, prob_0 = config.PROB_0, 
+                          prob_1 = config.PROB_1, seed = config.SEED):
     """
     Function that generates the Temporal XOR dataset  for testing, using fixed seeds 
     for reproducibility.
@@ -145,7 +150,8 @@ def generate_test_dataset(len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, le
     """   
     torch.manual_seed(seed)
     dataset = classes.TemporalXORDataset(len_sign_a=len_sign_a, len_sign_b=len_sign_b,          # Dataset allocation
-                                    len_sign_r=len_sign_r, gap=gap, noise_spikes=noise_spikes)
+                                    len_sign_r=len_sign_r, gap=gap, noise_spikes=noise_spikes, 
+                                    prob_0 = prob_0, prob_1 = prob_1)
     print("Test dataset successfully generated.")
     print(f"The length of the test dataset is: {len(dataset)}")
     return dataset

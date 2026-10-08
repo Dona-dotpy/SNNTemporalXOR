@@ -43,10 +43,10 @@ pip-delete-this-directory.txt
 .history/
 
 # ========================
-# wandb
+# wandb & Local Agent Notes
 # ========================
 wandb/
-
-
 GEMINI.md
+gemini.md
 SUGGESTIONS.md
+suggestions.md

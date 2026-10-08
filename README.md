@@ -21,9 +21,10 @@
 This repository investigates the computational capabilities and temporal robustness of **Spiking Neural Networks (SNNs)** applied to the **Temporal XOR task**.
 
 In contrast to static XOR, temporal XOR separates the presentation of input signals in time by an arbitrary gap:
-* The network receives rate-coded spike trains for inputs **A** and **B** separated by a delay.
 * Because FeedForward networks lack recurrent connections, temporal memory relies entirely on the sub-threshold leaky integration of membrane potentials:
-  $$\tau = -\frac{\Delta t}{\ln \beta}$$
+
+$$\tau = -\frac{\Delta t}{\ln \beta}$$
+
 * A terminal **Readout signal** prompts the network to release its integrated state and fire spikes corresponding to $A \oplus B$.
 
 <div align="center">
@@ -37,11 +38,13 @@ In contrast to static XOR, temporal XOR separates the presentation of input sign
 ## 🔬 Key Research & Architectural Features
 
 ### 1. ⏱️ Temporal Rate Coding with Gap Noise Injection
-* Input intensities (0 and 1) are encoded into distinct spike probabilities ($P_0 = 30\%$, $P_1 = 60\%$).
+* **Rate Coding**: Input bits (0 and 1) are encoded into spike probabilities: $\mathcal{P}_0 = 30\%$ (yielding ~3 spikes over 10 timesteps) and $\mathcal{P}_1 = 60\%$ (yielding ~6 spikes over 10 timesteps).
 * **Disturbance Analysis**: Configurable noise spikes can be injected directly into the temporal gap across channels $A$ and $B$.
 * **Normalized Center-of-Mass Metric**:
-  $$\text{Metric}_{\text{noise}} = \frac{\sum t_{\text{gap}}}{N_{\text{spikes}} \cdot \text{Gap}} \in [0, 1]$$
-  Measures whether noise is concentrated near the start (high decay dissipation) or near the end of the gap (high disruptive impact on signal B).
+
+$$\text{Metric}_{\text{noise}} = \frac{\sum t_{\text{gap}}}{N_{\text{spikes}} \cdot \text{GAP}} \in [0, 1]$$
+
+Measures whether noise is concentrated near the start (high decay dissipation) or near the end of the gap (high disruptive impact on signal B).
 
 ### 2. 🧠 Leaky Integrate-and-Fire (LIF) Dynamics
 * Custom architectures developed using `snnTorch` and `PyTorch`.
@@ -135,15 +138,25 @@ SNNTemporalXOR/
 │   ├── robustness.py                  # Robustness testing suite (seeds, gaps, noise)
 │   └── optimize_hyperparameters.py    # Optuna & W&B search pipeline
 │
-├── SUGGESTIONS.md                     # Thesis suggestions, mathematical formulas & metrics
 └── README.md                          # Project documentation
 ```
+
+### 📜 Module & Scripts Reference
+
+| Script | Primary Role & Pipeline Description |
+| :--- | :--- |
+| [`scripts/config.py`](scripts/config.py) | **Central Configuration (Single Source of Truth)**. Holds all global hyperparameters, temporal durations (`SIGN_A`, `SIGN_B`, `GAP`, `READOUT`), rate-coding probabilities, LIF decay factor ($\beta$), and hardware allocation logic. |
+| [`scripts/classes.py`](scripts/classes.py) | **Architectural & Data Classes**. Implements `XORSNN` (single hidden layer LIF network with recurrent membrane storage) and `TemporalXORDataset` (deterministic PyTorch dataset generation for rate-coded temporal XOR). |
+| [`scripts/functions.py`](scripts/functions.py) | **Core Utility Library**. Handles rate-coded input generation with flexible noise injection, training/evaluation loops, physics-grounded fluctuation-driven weight initialization, dynamic model persistence (`models/`), and ASCII raster plots. |
+| [`scripts/main.py`](scripts/main.py) | **Interactive Entrypoint**. Displays active hardware, verifies existing checkpoints to avoid duplicate training, runs forward training or immediate inference, and allows interactive terminal inspection of spike dynamics. |
+| [`scripts/robustness.py`](scripts/robustness.py) | **Perturbation & Generalization Suite**. Benchmarks theoretical model stability against external channel disturbances: seed reproducibility, gap duration scaling (training & frozen model), and multi-channel gap noise (Channel A, Channel B, Mixed) with automated CSV/PNG archiving. |
+| [`scripts/optimize_hyperparameters.py`](scripts/optimize_hyperparameters.py) | **Bayesian Optimization Engine**. Manages automated distributed hyperparameter search via Optuna (SQLite database) and real-time Weights & Biases (W&B) logging, featuring resilient trial-level checkpointing. |
 
 ---
 
 ## ⚙️ Configuration Reference (`scripts/config.py`)
 
-All global parameters are managed centrally in [`scripts/config.py`](file:///Users/dona/Documents/GitHub/SNNTemporalXOR/scripts/config.py):
+All global parameters are managed centrally in [`scripts/config.py`](scripts/config.py):
 
 | Parameter | Default Value | Description |
 | :--- | :--- | :--- |
@@ -151,7 +164,7 @@ All global parameters are managed centrally in [`scripts/config.py`](file:///Use
 | `GAP` | `30` | Number of timesteps separating signal A and signal B |
 | `READOUT` | `10` | Timesteps allocated to the terminal readout pulse |
 | `PROB_0`, `PROB_1` | `0.3, 0.6` | Spike firing probabilities representing bit 0 and bit 1 |
-| `NOISE_SPIKES` | `3` | Number of disturbance spikes injected into the temporal gap |
+| `NOISE_SPIKES` | `0` | Default disturbance spikes in gap (`0` for clean training baseline) |
 | `BETA` | `0.95` | LIF membrane potential decay factor ($\beta = e^{-\Delta t / \tau}$) |
 | `INPUT_LAYER`, `HIDDEN_LAYER` | `3, 100` | Network dimensions (Channels A, B, Readout $\to$ Hidden) |
 | `FLUCT_XI` | `1.223` | Fluctuation-driven initialization scaling factor |

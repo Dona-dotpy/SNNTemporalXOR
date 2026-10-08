@@ -1,4 +1,12 @@
-# Dataset generation of to train the net for temporal XOR
+"""
+Main Execution and Interactive Pipeline for Temporal XOR SNN.
+Orchestrates the standard workflow:
+1. Displays environment info, active device, and experimental parameters.
+2. Generates rate-coded datasets and previews spike trains in the terminal.
+3. Builds the LIF network and applies fluctuation-driven weight initialization.
+4. Trains the model (with best-model checkpointing) or interactively loads 
+   an existing checkpoint from 'models/' to run immediate evaluation.
+"""
 
 ## --- Libraries ---
 import classes, functions, config

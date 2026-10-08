@@ -1,3 +1,14 @@
+"""
+Global Configuration and Parameter Settings for Temporal XOR SNN.
+Serves as the Single Source of Truth for the entire repository, defining:
+- Temporal setup: durations of signals A, B, GAP, and terminal Readout.
+- Rate coding: spike firing probabilities representing bits 0 and 1.
+- Network & LIF parameters: layer dimensions and membrane decay factor (beta).
+- Optimizer & learning rate scheduler hyperparameter presets.
+- Dynamic hardware allocation (CPU, CUDA, MPS) based on batch workload.
+"""
+
+## --- Libraries ---
 import torch
 
 
