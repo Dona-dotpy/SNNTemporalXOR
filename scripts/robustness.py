@@ -251,7 +251,7 @@ def robustness_train_gaps(model_class, optimizer_class=config.OPTIMIZER, optimiz
         for s_idx, s in enumerate(train_seeds):
             print(f"Gap train {i+1}/{len(GAPS)} (gap={gap}) - Seed {s_idx+1}/{len(train_seeds)} (seed={s})...")
             torch.manual_seed(s)
-            train_dataset, val_dataset = functions.generate_train_validation_dataset(gap=gap)
+            train_dataset, val_dataset = functions.generate_train_validation_dataset(gap=gap, seed=s)
             train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
 
             model = model_class().to(config.DEVICE)
@@ -1164,13 +1164,13 @@ def save_robustness_results(
 
 if __name__ == "__main__":
 
-    # SEED robustness test
-    train_dataset, val_dataset = functions.generate_train_validation_dataset()
-    train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
-    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_seeds(classes.XORSNN, train_loader, val_loader)
+    # # SEED robustness test
+    # train_dataset, val_dataset = functions.generate_train_validation_dataset()
+    # train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
+    # avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_seeds(classes.XORSNN, train_loader, val_loader)
 
-    # GAP robustness train test
-    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_gaps(classes.XORSNN)
+    # # GAP robustness train test
+    # avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_gaps(classes.XORSNN)
 
     # GAP robustness test 
     model = functions.load_model()

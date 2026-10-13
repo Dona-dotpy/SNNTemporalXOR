@@ -1,0 +1,41 @@
+{
+    "model_name": "E1000-LR0.0062979175559891715-H100-B0.95-S1542",
+    "saved_at": "2026-10-06 17:11:56",
+    "epochs": 1000,
+    "learning_rate": 0.0062979175559891715,
+    "seed": 1542,
+    "hidden_layer": 100,
+    "beta": 0.95,
+    "fluct_xi": 1.2234823227754053,
+    "optimizer": "AdamW",
+    "optimizer_params": {
+        "lr": 0.0062979175559891715,
+        "betas": [
+            0.8514201577222816,
+            0.9525893636512329
+        ],
+        "weight_decay": 5.867194873852982e-07,
+        "amsgrad": false
+    },
+    "scheduler": "MultiStepLR",
+    "scheduler_params": {
+        "milestones": [
+            250,
+            500,
+            750
+        ],
+        "gamma": 0.7725925505051331
+    },
+    "task": {
+        "sign_a": 10,
+        "sign_b": 10,
+        "gap": 30,
+        "readout": 10,
+        "prob_0": 0.3,
+        "prob_1": 0.6,
+        "noise_spikes": 0,
+        "batch_size": 32,
+        "train_split": 0.8,
+        "num_samples": 1000
+    }
+}

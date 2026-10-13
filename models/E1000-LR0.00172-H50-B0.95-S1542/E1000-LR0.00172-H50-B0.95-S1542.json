@@ -1,0 +1,28 @@
+{
+    "model_name": "E1000-LR0.00172-H50-B0.95-S1542",
+    "saved_at": "2026-10-02 13:52:24",
+    "epochs": 1000,
+    "learning_rate": 0.00172,
+    "seed": 1542,
+    "hidden_layer": 50,
+    "beta": 0.95,
+    "fluct_xi": null,
+    "optimizer": "Adam",
+    "optimizer_params": {
+        "lr": 0.00172
+    },
+    "scheduler": null,
+    "scheduler_params": {},
+    "task": {
+        "sign_a": 10,
+        "sign_b": 10,
+        "gap": 30,
+        "readout": 10,
+        "prob_0": 0.3,
+        "prob_1": 0.6,
+        "noise_spikes": 0,
+        "batch_size": 32,
+        "train_split": 0.8,
+        "num_samples": 1000
+    }
+}

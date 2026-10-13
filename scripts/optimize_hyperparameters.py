@@ -3,11 +3,14 @@ Config-driven Hyperparameter Optimization engine for SNN models using Optuna and
 
 Architecture & Pipeline:
 - Driven entirely by JSON experiment files located in `optimization/inputs/<study_name>.json`.
+- Supports both single-objective optimization (nominal loss) and Multi-Objective Pareto optimization
+  (trading off nominal validation loss and robust validation accuracy) with Curriculum Learning.
 - Automatically initializes and isolates study environments under `optimization/studies/<study_name>/`:
     * Persistent SQLite database: `<study_name>.db`
     * Configuration snapshot: `config.json`
     * Trial checkpoints: `checkpoints/trial_<number>/checkpoint.pt`
-    * Best checkpointed models: `best_models/trial_<number>/best_model.pt`
+    * Best checkpointed models: `best_models/trial_<number>/best_model.pt` (and `pareto_model.pt`)
+- Frozen benchmark validation loaders isolate evaluation metrics from training PRNG drift.
 - Prioritizes `fixed_params` over `search_space`, bypassing Optuna sampling for pinned values
   to avoid wasting trials on known hyperparameters.
 - Saves PyTorch training checkpoints (model, optimizer, scheduler, RNG state) for seamless resume.
@@ -24,7 +27,9 @@ import sys
 import shutil
 from datetime import datetime
 import time
-import argparse                                                                                 # CLI argument parser
+import argparse
+import random                                                   # curriculum stochastic sampling
+from torch.utils.data import DataLoader, TensorDataset          # batching and tensor dataset
 
 import torch
 import classes, functions, config
@@ -62,6 +67,7 @@ def save_checkpoint(trial, epoch, model, optimizer, scheduler, lowest_loss, chec
         "lowest_loss": lowest_loss,
         "params": trial.params,
         "torch_rng_state": torch.get_rng_state(),                                               # preserve deterministic RNG
+        "python_rng_state": random.getstate(),                                                  # preserve Python RNG state
     }
     torch.save(checkpoint, checkpoint_path)
 
@@ -90,10 +96,150 @@ def load_checkpoint(trial, model, optimizer, scheduler, checkpoints_dir):
     if scheduler is not None and checkpoint.get("scheduler_state_dict") is not None:
         scheduler.load_state_dict(checkpoint["scheduler_state_dict"])                           # restore scheduler state
     torch.set_rng_state(checkpoint["torch_rng_state"].cpu())                                    # restore CPU RNG state
+    if checkpoint.get("python_rng_state") is not None:
+        random.setstate(checkpoint["python_rng_state"])                                         # restore Python RNG state
     start_epoch = checkpoint["epoch"] + 1                                                       # resume from next epoch
     lowest_loss = checkpoint["lowest_loss"]                                                     # best loss so far
 
     return start_epoch, lowest_loss, checkpoint
+
+def generate_balanced_dataset(num_samples, gap=config.GAP, noise_spikes=0, prob_0=0.3, prob_1=0.6):
+    """
+    Generates an XOR dataset with exactly 25% balanced samples across (0,0), (0,1), (1,0), (1,1).
+
+    Args:
+        num_samples (int): Total number of samples in dataset.
+        gap (int): Temporal delay between inputs A and B.
+        noise_spikes (int | list): Noise spikes injected during gap.
+        prob_0 (float): Spike probability for bit 0.
+        prob_1 (float): Spike probability for bit 1.
+
+    Returns:
+        TensorDataset: Balanced dataset containing input tensors and corresponding labels.
+    """
+    samples_per_class = max(1, num_samples // 4)
+    all_data, all_labels = [], []
+    for a in [0, 1]:
+        for b in [0, 1]:
+            for _ in range(samples_per_class):
+                data, label, _ = functions.XOR(a, b, gap=gap, noise_spikes=noise_spikes, prob_0=prob_0, prob_1=prob_1)
+                all_data.append(data)
+                all_labels.append(label)
+    return TensorDataset(torch.stack(all_data, dim=0), torch.tensor(all_labels, dtype=torch.long))
+
+def build_fixed_validation_loaders(val_cfg=None):
+    """
+    Builds frozen, balanced benchmark validation loaders isolating PRNG state.
+    Evaluates nominal, single-perturbation, and combined full-stress conditions.
+
+    Args:
+        val_cfg (dict | None): Validation configuration specifying sample counts and seed.
+
+    Returns:
+        tuple[DataLoader, list[DataLoader]]: Clean validation loader and list of robust loaders.
+    """
+    cfg = val_cfg or {}
+    val_seed = cfg.get("fixed_seed", 2026)
+    clean_samples = cfg.get("nominal_samples", 1000)
+    robust_samples = cfg.get("robust_samples", 1000)
+    samples_per_cond = max(1, robust_samples // 5)                                      # 5 balanced stress regimes (200 each)
+    
+    rng_state = torch.get_rng_state()                                                   # preserve training PRNG state
+    torch.manual_seed(val_seed)
+    
+    clean_ds = generate_balanced_dataset(clean_samples, gap=30, noise_spikes=0, prob_0=0.3, prob_1=0.6)
+    clean_loader = DataLoader(clean_ds, batch_size=config.BATCH_SIZE, shuffle=False)
+    
+    robust_loaders = [
+        DataLoader(generate_balanced_dataset(samples_per_cond, gap=30, noise_spikes=1, prob_0=0.3, prob_1=0.6), batch_size=config.BATCH_SIZE, shuffle=False),
+        DataLoader(generate_balanced_dataset(samples_per_cond, gap=30, noise_spikes=2, prob_0=0.3, prob_1=0.6), batch_size=config.BATCH_SIZE, shuffle=False),
+        DataLoader(generate_balanced_dataset(samples_per_cond, gap=25, noise_spikes=1, prob_0=0.3, prob_1=0.6), batch_size=config.BATCH_SIZE, shuffle=False),
+        DataLoader(generate_balanced_dataset(samples_per_cond, gap=35, noise_spikes=1, prob_0=0.3, prob_1=0.6), batch_size=config.BATCH_SIZE, shuffle=False),
+        DataLoader(generate_balanced_dataset(samples_per_cond, gap=25, noise_spikes=2, prob_0=0.2, prob_1=0.5), batch_size=config.BATCH_SIZE, shuffle=False),
+    ]
+    torch.set_rng_state(rng_state)                                                      # restore training PRNG state
+    return clean_loader, robust_loaders
+
+def get_curriculum_loader(epoch, curriculum_cfg=None, num_samples=800):
+    """
+    Generates training batch collection matching the active cumulative curriculum stage.
+    Reads durations and regime configurations dynamically from curriculum_cfg.
+    Uses batch-level interleaving to combine different conditions while maintaining
+    tensor shape homogeneity within each batch.
+
+    Args:
+        epoch (int): Current training epoch.
+        curriculum_cfg (dict | list | None): Curriculum configuration dictionary or stage duration list.
+        num_samples (int): Total training samples per epoch.
+
+    Returns:
+        list[tuple[torch.Tensor, torch.Tensor]]: Interleaved list of (data, label) batches for the epoch.
+    """
+    cfg = curriculum_cfg if isinstance(curriculum_cfg, dict) else {}
+    stage_durations = cfg.get("stage_durations", curriculum_cfg if isinstance(curriculum_cfg, list) else [250, 250, 400, 800])
+    s1 = stage_durations[0]
+    s2 = s1 + stage_durations[1]
+    s3 = s2 + stage_durations[2]
+    batches = []
+
+    if epoch < s1:
+        s1_cfg = cfg.get("stage_1_nominal", {})
+        gap = s1_cfg.get("gap", 30)
+        noise = s1_cfg.get("noise_spikes", 0)
+        p0 = s1_cfg.get("prob_0", 0.3)
+        p1 = s1_cfg.get("prob_1", 0.6)
+        ds = classes.TemporalXORDataset(num_samples=num_samples, gap=gap, noise_spikes=noise, prob_0=p0, prob_1=p1)
+        batches.extend(list(DataLoader(ds, batch_size=config.BATCH_SIZE, shuffle=True)))
+    elif epoch < s2:
+        s2_cfg = cfg.get("stage_2_jitter", {})
+        clean_ratio = s2_cfg.get("clean_ratio", 0.5)
+        n_clean = int(num_samples * clean_ratio)
+        n_jitter = num_samples - n_clean
+        gap_min = s2_cfg.get("gap_min", 28)
+        gap_max = s2_cfg.get("gap_max", 32)
+        ds_clean = classes.TemporalXORDataset(num_samples=n_clean, gap=30, noise_spikes=0, prob_0=0.3, prob_1=0.6)
+        ds_jitter = classes.TemporalXORDataset(num_samples=n_jitter, gap=random.randint(gap_min, gap_max), noise_spikes=0, prob_0=0.3, prob_1=0.6)
+        batches.extend(list(DataLoader(ds_clean, batch_size=config.BATCH_SIZE, shuffle=True)))
+        batches.extend(list(DataLoader(ds_jitter, batch_size=config.BATCH_SIZE, shuffle=True)))
+    elif epoch < s3:
+        s3_cfg = cfg.get("stage_3_jitter_noise", {})
+        clean_ratio = s3_cfg.get("clean_ratio", 0.34)
+        n_clean = int(num_samples * clean_ratio)
+        n_other = (num_samples - n_clean) // 2
+        gap_min = s3_cfg.get("gap_min", 25)
+        gap_max = s3_cfg.get("gap_max", 35)
+        ds_clean = classes.TemporalXORDataset(num_samples=n_clean, gap=30, noise_spikes=0, prob_0=0.3, prob_1=0.6)
+        ds_jitter = classes.TemporalXORDataset(num_samples=n_other, gap=random.randint(gap_min, gap_max), noise_spikes=0, prob_0=0.3, prob_1=0.6)
+        ds_noise = classes.TemporalXORDataset(num_samples=n_other, gap=random.randint(gap_min, gap_max), noise_spikes=1, prob_0=0.3, prob_1=0.6)
+        batches.extend(list(DataLoader(ds_clean, batch_size=config.BATCH_SIZE, shuffle=True)))
+        batches.extend(list(DataLoader(ds_jitter, batch_size=config.BATCH_SIZE, shuffle=True)))
+        batches.extend(list(DataLoader(ds_noise, batch_size=config.BATCH_SIZE, shuffle=True)))
+    else:
+        s4_cfg = cfg.get("stage_4_mixture", {})
+        c_ratio = s4_cfg.get("clean_ratio", 0.25)
+        j_ratio = s4_cfg.get("jitter_ratio", 0.25)
+        n_ratio = s4_cfg.get("noise_ratio", 0.25)
+        n_c = int(num_samples * c_ratio)
+        n_j = int(num_samples * j_ratio)
+        n_n = int(num_samples * n_ratio)
+        n_f = num_samples - (n_c + n_j + n_n)
+        ds_clean = classes.TemporalXORDataset(num_samples=n_c, gap=30, noise_spikes=0, prob_0=0.3, prob_1=0.6)
+        ds_jitter = classes.TemporalXORDataset(num_samples=n_j, gap=random.randint(25, 35), noise_spikes=0, prob_0=0.3, prob_1=0.6)
+        ds_noise = classes.TemporalXORDataset(num_samples=n_n, gap=30, noise_spikes=random.choice([1, 2]), prob_0=0.3, prob_1=0.6)
+        ds_full = classes.TemporalXORDataset(
+            num_samples=n_f,
+            gap=random.randint(25, 35),
+            noise_spikes=random.choice([1, 2]),
+            prob_0=random.choice([0.2, 0.3]),
+            prob_1=random.choice([0.5, 0.6])
+        )
+        batches.extend(list(DataLoader(ds_clean, batch_size=config.BATCH_SIZE, shuffle=True)))
+        batches.extend(list(DataLoader(ds_jitter, batch_size=config.BATCH_SIZE, shuffle=True)))
+        batches.extend(list(DataLoader(ds_noise, batch_size=config.BATCH_SIZE, shuffle=True)))
+        batches.extend(list(DataLoader(ds_full, batch_size=config.BATCH_SIZE, shuffle=True)))
+
+    random.shuffle(batches)                                                             # interleave batches across regimes
+    return batches
 
 # study functions 
 
@@ -130,7 +276,7 @@ def build_pruner(pruner_cfg):
             n_startup_trials=pruner_cfg.get("n_startup_trials", 20),                            # trials before pruning starts
             n_warmup_steps=pruner_cfg.get("n_warmup_steps", 300)                                # min epochs before trial pruning
         )
-    elif p_type == "NopPruner":
+    elif p_type in ["NopPruner", "None", None]:
         return optuna.pruners.NopPruner()                                                       # no pruning
     raise ValueError(f"Unknown pruner type: {p_type}")
 
@@ -235,8 +381,9 @@ def define_initialization(trial, model, input_activity, fixed_params, search_spa
                 torch.nn.init.orthogonal_(module.weight, gain=gain)
             elif init_name == "fluctuation_driven":
                 lif_layer = model.net[i + 1]
-                threshold, beta = lif_layer.threshold.item(), config.BETA
-                sigma_u = threshold / xi                                                                # membrane fluctuation target std
+                threshold = lif_layer.threshold.item()
+                beta = lif_layer.beta.item() if isinstance(lif_layer.beta, torch.Tensor) else float(lif_layer.beta)
+                sigma_u = threshold / xi                                                          # membrane fluctuation target std
                 epsilon_hat = 1.0 / (1.0 - beta ** 2)                                                   # discrete LIF decay kernel sum
                 weight_std = sigma_u / (module.in_features * input_activity * epsilon_hat) ** 0.5
                 torch.nn.init.normal_(module.weight, mean=0.0, std=weight_std)
@@ -265,22 +412,28 @@ def compute_input_activity(train_loader):
 
 # Objective functions
 
-def objective(trial, study_config, study, train_loader, val_loader, input_activity, checkpoints_dir, best_models_dir, start_time, previous_optimization_time):
+def objective(trial, study_config, study, clean_val_loader, robust_val_loaders, input_activity, 
+              checkpoints_dir, best_models_dir, start_time, previous_optimization_time, is_multi_objective=False, train_loader=None):
     """
     Objective function executed for each Optuna trial.
     Reads experiment settings from study_config, builds model, trains and evaluates.
     """
-    torch.manual_seed(study_config.get("seed", config.SEED))                                    # trial seed setup
+    torch.manual_seed(study_config.get("seed", config.SEED))                                    # trial torch seed setup
+    random.seed(study_config.get("seed", config.SEED))                                          # trial python random seed setup
 
     fixed_params = study_config.get("fixed_params", {})                                        # constant experiment parameters
     search_space = study_config.get("search_space", {})                                        # search intervals and choices
     epochs = study_config.get("epochs", 1000)                                                  # total training epochs
 
-    # Model definition with fixed or sampled hidden layer size
+    # Model definition with fixed or sampled hidden layer size and beta
     hidden_layer = fixed_params.get("hidden_layer") or trial.suggest_int(
         "hidden_layer", search_space["hidden_layer_min"], search_space["hidden_layer_max"]
     )
-    model = classes.XORSNN(hidden_layer=hidden_layer).to(config.DEVICE)
+    beta = fixed_params.get("beta") or (
+        trial.suggest_float("beta", search_space["beta_min"], search_space["beta_max"])
+        if "beta_min" in search_space else config.BETA
+    )
+    model = classes.XORSNN(hidden_layer=hidden_layer, beta=beta).to(config.DEVICE)
     define_initialization(trial, model, input_activity, fixed_params, search_space)
 
     # Learning rate and optimizer/scheduler definition
@@ -306,8 +459,9 @@ def objective(trial, study_config, study, train_loader, val_loader, input_activi
 
         for epoch in range(start_epoch, epochs):
             current_lr = optimizer.param_groups[0]["lr"]
-            avg_loss_train, acc_train = functions.train(model, train_loader, optimizer, loss_fn)
-            avg_loss_val, acc_val = functions.evaluate(model, val_loader, loss_fn)
+            current_train_loader = get_curriculum_loader(epoch, study_config.get("curriculum", {})) if "curriculum" in study_config else train_loader
+            avg_loss_train, acc_train = functions.train(model, current_train_loader, optimizer, loss_fn)
+            avg_loss_val, acc_val = functions.evaluate(model, clean_val_loader, loss_fn)
 
             if scheduler is not None:
                 scheduler.step(avg_loss_val) if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau) else scheduler.step()
@@ -336,7 +490,7 @@ def objective(trial, study_config, study, train_loader, val_loader, input_activi
             minutes, seconds = divmod(rem, 60)
             sim_time_string = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
-            run.log({
+            log_dict = {
                 "epoch": epoch,
                 "train_loss": avg_loss_train,
                 "val_loss": avg_loss_val,
@@ -344,7 +498,14 @@ def objective(trial, study_config, study, train_loader, val_loader, input_activi
                 "val_accuracy": acc_val,
                 "lr": current_lr,
                 "sim_time": current_sim_time
-            })
+            }
+
+            # Periodic robust validation logging
+            if is_multi_objective and (epoch + 1) % checkpoint_interval == 0:
+                robust_accs = [functions.evaluate(model, l, loss_fn)[1] for l in robust_val_loaders]
+                log_dict["val_robust_accuracy"] = sum(robust_accs) / len(robust_accs)
+
+            run.log(log_dict)
             run.summary["best_val_loss"] = lowest_loss
             run.summary["final_val_loss"] = avg_loss_val
             run.summary["final_val_accuracy"] = acc_val
@@ -356,17 +517,44 @@ def objective(trial, study_config, study, train_loader, val_loader, input_activi
             if (epoch + 1) % checkpoint_interval == 0:
                 save_checkpoint(trial, epoch, model, optimizer, scheduler, lowest_loss, checkpoints_dir)
 
-            trial.report(avg_loss_val, step=epoch)
-            if trial.should_prune():
-                run.summary["status"] = "pruned"
-                raise optuna.TrialPruned()
+            if not is_multi_objective:
+                trial.report(avg_loss_val, step=epoch)
+                if trial.should_prune():
+                    run.summary["status"] = "pruned"
+                    raise optuna.TrialPruned()
+
+        # Final evaluation on frozen checkpoint (epoch 1700)
+        if is_multi_objective:
+            final_clean_loss, final_clean_acc = functions.evaluate(model, clean_val_loader, loss_fn)
+            robust_accs = [functions.evaluate(model, l, loss_fn)[1] for l in robust_val_loaders]
+            final_robust_acc = sum(robust_accs) / len(robust_accs)
+            
+            run.summary["final_clean_loss"] = final_clean_loss
+            run.summary["final_clean_accuracy"] = final_clean_acc
+            run.summary["final_robust_accuracy"] = final_robust_acc
+
+            # Save the final Pareto model
+            trial_best_dir = os.path.join(best_models_dir, f"trial_{trial.number}")
+            os.makedirs(trial_best_dir, exist_ok=True)
+            torch.save(
+                {
+                    "trial_number": trial.number,
+                    "epoch": epochs - 1,
+                    "clean_loss": final_clean_loss,
+                    "clean_accuracy": final_clean_acc,
+                    "robust_accuracy": final_robust_acc,
+                    "params": {**fixed_params, **trial.params},
+                    "model_state_dict": model.state_dict()
+                },
+                os.path.join(trial_best_dir, "pareto_model.pt")
+            )
 
         run.summary["status"] = "completed"
     finally:
         if run is not None:
             run.finish()
 
-    return lowest_loss
+    return (final_clean_loss, final_robust_acc) if is_multi_objective else lowest_loss
 
 ## --- MAIN CODE ---
 
@@ -391,25 +579,45 @@ if __name__ == "__main__":
     with open(os.path.join(study_dir, "config.json"), "w") as f:
         json.dump(study_cfg, f, indent=4)
 
-    # Generate data loaders and compute baseline activity
-    train_dataset, val_dataset = functions.generate_train_validation_dataset()
-    train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
-    input_activity = compute_input_activity(train_loader)
+    # Multi-objective detection
+    directions = study_cfg.get("directions")
+    is_multi_objective = directions is not None and len(directions) > 1
+
+    # Generate data loaders and compute baseline input activity
+    if is_multi_objective:
+        clean_val_loader, robust_val_loaders = build_fixed_validation_loaders(study_cfg.get("validation", {}))
+        train_loader = None
+        input_activity = compute_input_activity(clean_val_loader)
+    else:
+        train_dataset, val_dataset = functions.generate_train_validation_dataset()
+        train_loader, clean_val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
+        robust_val_loaders = []
+        input_activity = compute_input_activity(train_loader)
+
     print(f"[{study_name}] Average input activity: {input_activity:.6f}")
 
-    # Build sampler, pruner and persistent SQLite storage
+    # Build sampler and persistent SQLite storage
     sampler = build_sampler(study_cfg.get("sampler", {}))
-    pruner = build_pruner(study_cfg.get("pruner", {}))
     db_path = os.path.join(study_dir, f"{study_name}.db")
 
-    study = optuna.create_study(
-        study_name=study_name,
-        direction="minimize",
-        sampler=sampler,
-        pruner=pruner,
-        storage=f"sqlite:///{db_path}",
-        load_if_exists=True
-    )
+    if is_multi_objective:
+        study = optuna.create_study(
+            study_name=study_name,
+            directions=directions,
+            sampler=sampler,
+            storage=f"sqlite:///{db_path}",
+            load_if_exists=True
+        )
+    else:
+        pruner = build_pruner(study_cfg.get("pruner", {}))
+        study = optuna.create_study(
+            study_name=study_name,
+            direction="minimize",
+            sampler=sampler,
+            pruner=pruner,
+            storage=f"sqlite:///{db_path}",
+            load_if_exists=True
+        )
 
     # Enqueue reference trials on fresh study creation
     if len(study.trials) == 0:
@@ -420,7 +628,7 @@ if __name__ == "__main__":
     start_time = time.perf_counter()
 
     completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-    remaining_trials = target_trials - len(study.trials)
+    remaining_trials = target_trials - len(completed_trials)
 
     print(f"[{study_name}] Recorded trials: {len(study.trials)} (completed: {len(completed_trials)}).")
     if remaining_trials <= 0:
@@ -428,15 +636,24 @@ if __name__ == "__main__":
     else:
         print(f"Starting {remaining_trials} remaining trials (target: {target_trials})...\n")
         study.optimize(
-            lambda trial: objective(trial, study_cfg, study, train_loader, val_loader, input_activity,
-                                    checkpoints_dir, best_models_dir, start_time, prev_time),
+            lambda trial: objective(
+                trial, study_cfg, study, clean_val_loader, robust_val_loaders, input_activity,
+                checkpoints_dir, best_models_dir, start_time, prev_time,
+                is_multi_objective=is_multi_objective, train_loader=train_loader
+            ),
             n_trials=remaining_trials
         )
 
     completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     if completed_trials:
         print("\n=== STUDY COMPLETED ===")
-        print("Best value:", study.best_value)
-        print("Best parameters:", study.best_params)
+        if is_multi_objective:
+            print(f"Pareto frontier contains {len(study.best_trials)} optimal trials:")
+            for bt in study.best_trials:
+                vals = bt.values
+                print(f"  Trial {bt.number}: clean_loss={vals[0]:.6f}, robust_acc={vals[1]:.2f}%, params={bt.params}")
+        else:
+            print("Best value:", study.best_value)
+            print("Best parameters:", study.best_params)
     else:
         print("No completed trials.")

@@ -19,6 +19,7 @@ import datetime
 import os
 from torch.utils.data import DataLoader, random_split
 import time
+import json                      # JSON metadata export
 
 ## -- INPUT FUNCTIONS AND DATA---
 
@@ -48,8 +49,8 @@ def XOR(A, B, len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=con
 
     # Let's generate random permutations and take 1st 3 or 6 numbers to decide spike positions
     A_on, B_on = torch.zeros(len_sign_a), torch.zeros(len_sign_b)
-    spikes_0_A, spikes_1_A = int(len_sign_a*prob_0), int(len_sign_a*prob_1)
-    spikes_0_B, spikes_1_B = int(len_sign_b*prob_0), int(len_sign_b*prob_1)
+    spikes_0_A, spikes_1_A = int(round(len_sign_a * prob_0)), int(round(len_sign_a * prob_1))
+    spikes_0_B, spikes_1_B = int(round(len_sign_b * prob_0)), int(round(len_sign_b * prob_1))
     if A:
         A_on_indexes = torch.randperm(len_sign_a)[:spikes_1_A]
     else:
@@ -104,7 +105,7 @@ def generate_new_random_data():
 
 def generate_train_validation_dataset(len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, 
                                       gap=config.GAP, noise_spikes = config.NOISE_SPIKES, prob_0 = config.PROB_0, 
-                                      prob_1 = config.PROB_1):
+                                      prob_1 = config.PROB_1, seed=config.SEED):
     """
     Function that generates the Temporal XOR dataset and splits it into a train
     and a test set, using fixed seeds for reproducibility.
@@ -121,7 +122,7 @@ def generate_train_validation_dataset(len_sign_a=config.SIGN_A, len_sign_b=confi
         train_dataset (torch.utils.data.Subset): The subset used for training.
         val_dataset (torch.utils.data.Subset): The subset used for testing.
     """
-    torch.manual_seed(config.SEED)                                                      # Seed setup
+    torch.manual_seed(seed)                                                      # Seed setup
     dataset = classes.TemporalXORDataset(len_sign_a=len_sign_a, len_sign_b=len_sign_b,  # Dataset allocation
                                 len_sign_r=len_sign_r, gap=gap, noise_spikes=noise_spikes,
                                 prob_0 = prob_0, prob_1 = prob_1)   
@@ -130,7 +131,7 @@ def generate_train_validation_dataset(len_sign_a=config.SIGN_A, len_sign_b=confi
     train_dataset, val_dataset = random_split(                                                       
         dataset,
         [n_train, n_val],
-        generator = torch.Generator().manual_seed(config.SEED)
+        generator = torch.Generator().manual_seed(seed)
     )
 
     print("Train dataset e Validation dataset successfully generated.")
@@ -183,19 +184,7 @@ def generate_test_dataloader(test_dataset):
     test_dataloader = DataLoader(test_dataset, batch_size=config.BATCH_SIZE, shuffle=False)
     return test_dataloader
 
-def fluctuation_driven_initialization(model, train_loader):
-    """
-    Applies fluctuation-driven initialization to the Linear layers
-    of the SNN using the average activity of the training dataset.
-
-    Args:
-        model (torch.nn.Module): model to initialize.
-        train_loader (torch.utils.data.DataLoader): training dataloader.
-
-    Returns:
-        None
-    """
-
+def fluctuation_driven_initialization(model, train_loader, xi=getattr(config, "FLUCT_XI", 1.4765)):
     total_activity = 0.0
     total_elements = 0
 
@@ -209,9 +198,10 @@ def fluctuation_driven_initialization(model, train_loader):
         if isinstance(module, torch.nn.Linear):
             lif_layer = model.net[i + 1]
             threshold = lif_layer.threshold.item()
-            beta = config.BETA
+            # Read beta directly from the LIF instance (tensor or scalar)
+            beta = lif_layer.beta.item() if isinstance(lif_layer.beta, torch.Tensor) else float(lif_layer.beta)
             fan_in = module.in_features
-            sigma_u = threshold / config.FLUCT_XI
+            sigma_u = threshold / xi                                                            # use sampled fluctuation xi
             epsilon_hat = 1.0 / (1.0 - beta ** 2)
             weight_std = sigma_u / (fan_in * input_activity * epsilon_hat) ** 0.5
             torch.nn.init.normal_(module.weight, mean=0.0, std=weight_std)
@@ -284,8 +274,8 @@ def evaluate(model, test_loader, loss_fn):
             - acc_test (float): Accuracy of the Dataset.
     """
 
-    loss_test_hist = []
-    total_correct, total_samples = 0,0 
+    total_loss = 0.0
+    total_correct, total_samples = 0, 0
 
     model.eval()
     for data, label in test_loader:
@@ -296,12 +286,10 @@ def evaluate(model, test_loader, loss_fn):
         loss_test = loss_fn(total_spikes, label)                            # compute the loss -ln(e^num_cor / (e^num_cor + e^num_wrong))
         pred = torch.argmax(total_spikes, dim=1)                            # compute which is the predicted output from the number of spikes
         total_correct += (pred == label).float().sum()                      # count the number of correct predictions
+        total_loss += loss_test.item() * label.size(0)                      # accumulate sample-weighted loss
         total_samples += label.size(0)                                      # total number of predictions
 
-        loss_test_hist.append(loss_test.item())                             # store results
-
-
-    avg_loss_test = sum(loss_test_hist) / len(test_loader)
+    avg_loss_test = total_loss / total_samples                              # sample-weighted mean loss
     acc_test = ((total_correct / total_samples) * 100).item()
     return avg_loss_test, acc_test
 
@@ -360,30 +348,31 @@ def train_and_validate(model, train_loader, val_loader, optimizer, loss_fn, sche
 
 def check_trained():
     """ 
-    Based on the parameters LEARNING rate and EPOCHS, looks if a model with the exact same parameters
-    has already been trained in the past
-
-    Args:
-        None (parameters are not variables)
-
-    returns:
-        bool
+    Checks whether a model with current parameters and seed has already been trained.
+    Supports both new folder-based models (with JSON metadata) and legacy flat files.
     """
-    folder_name = "models"
-
-    # check existance of the folder
-    if os.path.exists(folder_name):
-        # iters on the model names inside the folder to look for learing rate and epochs
-        for filename in os.listdir(folder_name):
-            if filename.endswith(".pth"):           # avoids to analyse file automatically generated from operative system
-                split_dashed = filename.split("-")   # EVAL1-LRVAL2-HVAl3-BVAL4 -> [EVAL1, LRVAL2, HVAL3, BVAL4.pth]
-                epochs = int(split_dashed[0][1:])
-                lr = float(split_dashed[1][2:])
-                hidden = int(split_dashed[2][1:])
-                beta = float(split_dashed[3][1:-4])
-
-                if lr == config.LEARNING_RATE and epochs == config.EPOCHS and hidden == config.HIDDEN_LAYER and beta == config.BETA:
+    models_dir = "models"
+    if not os.path.exists(models_dir):
+        return False
+    for item in os.listdir(models_dir):
+        item_path = os.path.join(models_dir, item)
+        # Check modern folder-based format with JSON metadata
+        if os.path.isdir(item_path):
+            json_file = os.path.join(item_path, f"{item}.json")
+            if os.path.exists(json_file):
+                with open(json_file, "r") as f:
+                    cfg = json.load(f)
+                if (cfg.get("epochs") == config.EPOCHS and 
+                    cfg.get("learning_rate") == config.LEARNING_RATE and 
+                    cfg.get("hidden_layer") == config.HIDDEN_LAYER and 
+                    cfg.get("beta") == config.BETA and 
+                    cfg.get("seed") == config.SEED):
                     return True
+        # Fallback for legacy flat .pth files
+        elif item.endswith(".pth"):
+            check_str = f"E{config.EPOCHS}-LR{config.LEARNING_RATE}-H{config.HIDDEN_LAYER}-B{config.BETA}"
+            if check_str in item:
+                return True
     return False
 
 def test_model_robustness(model, loss_fn):
@@ -420,47 +409,86 @@ def test_model_robustness(model, loss_fn):
 ## --- SAVE FUNCTIONS ---
 
 def store_model(model):
-    """Saves the PyTorch model weights with a formatted timestamp.
-
-    Checks if the 'models' directory exists, creates it if necessary, 
-    and saves the model's state dictionary using the format: 
-    YYYYMMDD-E{EPOCHS}-LR{LR}.pth.
-
-    Args:
-        model (torch.nn.Module): The trained neural network model.
-
-    Returns:
-        None
     """
-    os.makedirs("models", exist_ok=True)                                                    # create model folder if not present
-    modelname = f"models/E{config.EPOCHS}-LR{config.LEARNING_RATE}-H{config.HIDDEN_LAYER}-B{config.BETA}.pth"      # decide the model name
-    torch.save(model.state_dict(), modelname)
-
-def load_model(epochs = config.EPOCHS, lr = config.LEARNING_RATE, hidden = config.HIDDEN_LAYER, beta=config.BETA):
-    """ 
-    Function that proceeds to create the string and load the corresponding 
-    model based on the parameters stored in "config.py" before the compiling
-
-    Args:
-        None
-
-    Returns:
-        model (torch.nn.Module): The neural network model trained in a previous session,
-                                 or None if not found
+    Saves model weights (.pth) and exhaustive experiment metadata (.json)
+    inside a dedicated folder: models/<model_name>/
     """
+    model_name = f"E{config.EPOCHS}-LR{config.LEARNING_RATE}-H{config.HIDDEN_LAYER}-B{config.BETA}-S{config.SEED}"
+    model_dir = os.path.join("models", model_name)
+    os.makedirs(model_dir, exist_ok=True)                                                       # create dedicated model folder
+    # Save PyTorch weights
+    weights_path = os.path.join(model_dir, f"{model_name}.pth")
+    torch.save(model.state_dict(), weights_path)                                                # serialize model state dict
+    # Build and save exhaustive configuration dictionary
+    model_config = {
+        "model_name": model_name,
+        "saved_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "epochs": config.EPOCHS,
+        "learning_rate": config.LEARNING_RATE,
+        "seed": config.SEED,
+        "hidden_layer": config.HIDDEN_LAYER,
+        "beta": config.BETA,
+        "fluct_xi": getattr(config, "FLUCT_XI", None),
+        "optimizer": config.OPTIMIZER.__name__,
+        "optimizer_params": config.OPTIMIZER_PARAMS,
+        "scheduler": config.SCHEDULER.__name__,
+        "scheduler_params": config.SCHEDULER_PARAMS,
+        "task": {
+            "sign_a": config.SIGN_A,
+            "sign_b": config.SIGN_B,
+            "gap": config.GAP,
+            "readout": config.READOUT,
+            "prob_0": config.PROB_0,
+            "prob_1": config.PROB_1,
+            "noise_spikes": config.NOISE_SPIKES,
+            "batch_size": config.BATCH_SIZE,
+            "train_split": config.TRAIN_SPLIT,
+            "num_samples": config.NUM_SAMPLES
+        }
+    }
+    json_path = os.path.join(model_dir, f"{model_name}.json")
+    with open(json_path, "w") as f:
+        json.dump(model_config, f, indent=4)                                                    # export metadata snapshot
+    print(f"\nModel and configuration saved to: {model_dir}")
 
-    check_string = f"E{epochs}-LR{lr}-H{hidden}-B{beta}"                        # create the model we have to look for
-    folder_name = "models"                                                      # directory
-    if os.path.exists(folder_name):
-        for filename in os.listdir(folder_name):
-            if filename.endswith(".pth") and check_string in filename:          # ensure to choose correct name and that is model
-                file_path = os.path.join(folder_name, filename)                 # creation of complete path
+def load_model(epochs=config.EPOCHS, lr=config.LEARNING_RATE, hidden=config.HIDDEN_LAYER, beta=config.BETA, seed=None):
+    """
+    Loads model weights from modern folder format or legacy flat .pth file.
+    """
+    models_dir = "models"
+    if not os.path.exists(models_dir):
+        print(f"Directory '{models_dir}' not found.")
+        return None
+    # Search among folders and files
+    for item in os.listdir(models_dir):
+        item_path = os.path.join(models_dir, item)
+        # Check folder format
+        if os.path.isdir(item_path):
+            json_file = os.path.join(item_path, f"{item}.json")
+            pth_file = os.path.join(item_path, f"{item}.pth")
+            if os.path.exists(json_file) and os.path.exists(pth_file):
+                with open(json_file, "r") as f:
+                    cfg = json.load(f)
+                match = (cfg.get("epochs") == int(epochs) and 
+                         float(cfg.get("learning_rate")) == float(lr) and 
+                         int(cfg.get("hidden_layer")) == int(hidden) and 
+                         float(cfg.get("beta")) == float(beta))
+                if seed is not None:
+                    match = match and (cfg.get("seed") == int(seed))
+                if match:
+                    model = classes.XORSNN(hidden_layer=int(hidden), beta=float(beta))
+                    model.load_state_dict(torch.load(pth_file, map_location=config.DEVICE))
+                    print(f"Model correctly loaded from: {pth_file}")
+                    return model.to(config.DEVICE)
+        # Legacy flat .pth file fallback
+        elif item.endswith(".pth"):
+            check_str = f"E{epochs}-LR{lr}-H{hidden}-B{beta}"
+            if check_str in item:
                 model = classes.XORSNN(hidden_layer=int(hidden), beta=float(beta))
-                weights = torch.load(file_path, map_location = config.DEVICE)   # load weights on the working device
-                model.load_state_dict(weights)
-                print(f"Model correctly loaded from: {file_path}")
+                model.load_state_dict(torch.load(item_path, map_location=config.DEVICE))
+                print(f"Legacy model loaded from: {item_path}")
                 return model.to(config.DEVICE)
-    print(f"No model found with the parameters: {check_string}")                # Handle the case with no model present with that name
+    print(f"No model found matching E{epochs}-LR{lr}-H{hidden}-B{beta}")
     return None
 
 ## --- PLOTTING AND PRINTING FUNCTIONS ---
@@ -582,6 +610,12 @@ def plot_loss_accuracy(loss_train = None, loss_test = None, acc_train = None, ac
             a.set_xlabel("Epoch")
 
     plt.tight_layout()
+    output_dir = "images/Training_FF"
+    os.makedirs(output_dir, exist_ok=True)                                                      # ensure images directory exists
+    filename = f"E{config.EPOCHS}-LR{config.LEARNING_RATE}-H{config.HIDDEN_LAYER}-B{config.BETA}-S{config.SEED}.png"
+    filepath = os.path.join(output_dir, filename)
+    plt.savefig(filepath, dpi=300, bbox_inches="tight")                                         # auto-save plot at 300 DPI
+    print(f"Training plot automatically saved to: {filepath}\n")
     plt.show()
 
 def plot_loss_accuracy_in_terminal(loss_train=None, loss_test=None, acc_train=None, acc_test=None):

@@ -29,33 +29,29 @@ TRAIN_SPLIT = 0.8
 N_ROBUSTNESS_DATASET = 10
 
 ## --- Neurons ---
-BETA = 0.95
+BETA = 0.979350180923352
 
 ## --- Neural network ---
 
 # we put here the best parameters we found from a 62 hours search with the script "optimize_hyperparameters.py"
-INPUT_LAYER, HIDDEN_LAYER, OUTPUT_LAYER = 3, 100, 2
-LOSS_FN = torch.nn.CrossEntropyLoss
-FLUCT_XI = 1.2234823227754053                      # for fluctionation drive initialization
+# Optimal parameters from Test 2 (Nominal 50 neurons, Trial 82)
 
+INPUT_LAYER, HIDDEN_LAYER, OUTPUT_LAYER = 3, 50, 2
+LOSS_FN = torch.nn.CrossEntropyLoss
+FLUCT_XI = 1.2923776896484005                      # fluctuation-driven initialization scale
 OPTIMIZER = torch.optim.AdamW
 OPTIMIZER_PARAMS = {
-    "lr": 0.0062979175559891715,
-    "betas": (
-        0.8514201577222816,
-        0.9525893636512329
-    ),
-    "weight_decay": 5.867194873852982e-07,
+    "lr": 0.004978658660260544,
+    "betas": (0.85, 0.953),
+    "weight_decay": 1e-06,
     "amsgrad": False
 }
-
 SCHEDULER = torch.optim.lr_scheduler.MultiStepLR
 SCHEDULER_PARAMS = {
     "milestones": [250, 500, 750],
-    "gamma": 0.7725925505051331
+    "gamma": 0.7664475228425424
 }
-
-LEARNING_RATE = 0.0062979175559891715              # write in floating point (do not write 1e-3)
+LEARNING_RATE = 0.004978658660260544              # write in floating point (do not write 1e-3)
 EPOCHS = 1000
 
 ## --- Device ---

@@ -1,0 +1,65 @@
+{
+    "study_name": "test_3_robust_pareto",
+    "description": "HPO 3 Multi-Objective Pareto: trade-off tra loss nominale e robustezza con Curriculum Learning",
+    "target_trials": 2,
+    "epochs": 1700,
+    "checkpoint_interval": 50,
+    "objective": "pareto_curriculum",
+    "directions": ["minimize", "maximize"],
+    "seed": 1542,
+    "sampler": {
+        "type": "TPESampler",
+        "seed": 1542
+    },
+    "pruner": {
+        "type": "NopPruner"
+    },
+    "enqueued_trials": [
+        {
+            "beta": 0.95,
+            "fluct_xi": 1.4765,
+            "lr": 0.003161
+        }
+    ],
+    "fixed_params": {
+        "hidden_layer": 50,
+        "optimizer": "AdamW",
+        "amsgrad": false,
+        "weight_decay": 1e-06,
+        "beta1": 0.85,
+        "beta2": 0.953,
+        "initialization": "fluctuation_driven",
+        "scheduler": "MultiStepLR",
+        "multistep_pattern": "25_50_75",
+        "multistep_gamma": 0.76645
+    },
+    "search_space": {
+        "beta_min": 0.88,
+        "beta_max": 0.99,
+        "fluct_xi_min": 1.2,
+        "fluct_xi_max": 1.8,
+        "lr_min": 0.002,
+        "lr_max": 0.006
+    },
+    "curriculum": {
+        "stage_durations": [250, 250, 400, 800],
+        "stages": [
+            {"stage": 1, "epochs": 250, "gap": 30, "noise_spikes": 0, "p0": 0.3, "p1": 0.6},
+            {"stage": 2, "epochs": 250, "gap_range": [28, 32], "noise_spikes": 0, "p0": 0.3, "p1": 0.6},
+            {"stage": 3, "epochs": 400, "gap_range": [25, 35], "noise_spikes_choices": [0, 1], "p0": 0.3, "p1": 0.6},
+            {"stage": 4, "epochs": 800, "gap_range": [25, 35], "noise_spikes_choices": [0, 1, 2], "p0_choices": [0.2, 0.3], "p1_choices": [0.5, 0.6]}
+        ]
+    },
+    "validation": {
+        "fixed_seed": 2026,
+        "balanced_xor_classes": true,
+        "checkpoint_selection": "final_epoch",
+        "nominal_samples": 1000,
+        "robust_conditions": [
+            {"name": "noise_1_spike", "gap": 30, "noise_spikes": 1, "p0": 0.3, "p1": 0.6, "samples": 250},
+            {"name": "noise_2_spikes", "gap": 30, "noise_spikes": 2, "p0": 0.3, "p1": 0.6, "samples": 250},
+            {"name": "jitter_gap_25", "gap": 25, "noise_spikes": 1, "p0": 0.3, "p1": 0.6, "samples": 250},
+            {"name": "jitter_gap_35", "gap": 35, "noise_spikes": 1, "p0": 0.3, "p1": 0.6, "samples": 250}
+        ]
+    }
+}

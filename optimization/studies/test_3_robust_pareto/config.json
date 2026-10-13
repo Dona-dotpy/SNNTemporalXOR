@@ -1,0 +1,94 @@
+{
+    "study_name": "test_3_robust_pareto",
+    "description": "HPO 3 Multi-Objective Pareto: trade-off tra loss nominale e robustezza al rumore con Curriculum Learning",
+    "target_trials": 200,
+    "epochs": 1700,
+    "checkpoint_interval": 50,
+    "objective": "pareto_curriculum",
+    "directions": [
+        "minimize",
+        "maximize"
+    ],
+    "seed": 1542,
+    "sampler": {
+        "type": "TPESampler",
+        "seed": 1542
+    },
+    "pruner": {
+        "type": "NopPruner"
+    },
+    "enqueued_trials": [
+        {
+            "beta": 0.95,
+            "fluct_xi": 1.4765,
+            "lr": 0.003161
+        }
+    ],
+    "fixed_params": {
+        "hidden_layer": 50,
+        "optimizer": "AdamW",
+        "amsgrad": false,
+        "weight_decay": 1e-06,
+        "beta1": 0.85,
+        "beta2": 0.953,
+        "initialization": "fluctuation_driven",
+        "scheduler": "MultiStepLR",
+        "multistep_pattern": "25_50_75",
+        "multistep_gamma": 0.76645
+    },
+    "search_space": {
+        "beta_min": 0.88,
+        "beta_max": 0.99,
+        "fluct_xi_min": 1.2,
+        "fluct_xi_max": 1.8,
+        "lr_min": 0.002,
+        "lr_max": 0.006
+    },
+    "curriculum": {
+        "stage_durations": [
+            250,
+            250,
+            400,
+            800
+        ],
+        "stage_1_nominal": {
+            "clean_ratio": 1.0,
+            "gap": 30,
+            "noise_spikes": 0,
+            "prob_0": 0.3,
+            "prob_1": 0.6
+        },
+        "stage_2_jitter": {
+            "clean_ratio": 0.5,
+            "jitter_ratio": 0.5,
+            "gap_min": 28,
+            "gap_max": 32,
+            "noise_spikes": 0,
+            "prob_0": 0.3,
+            "prob_1": 0.6
+        },
+        "stage_3_jitter_noise": {
+            "clean_ratio": 0.34,
+            "jitter_ratio": 0.33,
+            "noise_ratio": 0.33,
+            "gap_min": 25,
+            "gap_max": 35,
+            "noise_spikes": 1,
+            "prob_0": 0.3,
+            "prob_1": 0.6
+        },
+        "stage_4_mixture": {
+            "clean_ratio": 0.25,
+            "jitter_ratio": 0.25,
+            "noise_ratio": 0.25,
+            "full_stress_ratio": 0.25
+        }
+    },
+    "validation": {
+        "fixed_seed": 2026,
+        "balanced_xor_classes": true,
+        "nominal_samples": 1000,
+        "robust_samples": 1000,
+        "checkpoint_selection": "final_epoch"
+    }
+}
