@@ -20,6 +20,7 @@ import os
 from torch.utils.data import DataLoader, random_split
 import time
 import json                      # JSON metadata export
+import random
 
 ## -- INPUT FUNCTIONS AND DATA---
 
@@ -103,35 +104,72 @@ def generate_new_random_data():
     """
     return DataLoader(classes.TemporalXORDataset(), batch_size=config.BATCH_SIZE, shuffle=False)
 
-def generate_train_validation_dataset(len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, 
-                                      gap=config.GAP, noise_spikes = config.NOISE_SPIKES, prob_0 = config.PROB_0, 
-                                      prob_1 = config.PROB_1, seed=config.SEED):
+def _generate_noise_mixture_dataset(num_samples, gap, prob_0, prob_1):
     """
-    Function that generates the Temporal XOR dataset and splits it into a train
-    and a test set, using fixed seeds for reproducibility.
+    Creates a balanced mixture dataset containing clean, noise spike, and probability perturbations.
+
+    Splits the sample quota into four balanced partitions:
+    - 25% nominal clean samples (0 noise spikes).
+    - 25% single disturbance spike injected into the temporal gap.
+    - 25% double disturbance spikes injected into the temporal gap.
+    - 25% full stress conditions with stochastic noise spikes and shifted firing probabilities.
 
     Args:
-        len_sign_a(int): number of temporal spikes allocated to input A
-        len_sign_b(int): number of temporal spikes allocated to input B
-        len_sign_r(int): number of temporal spikes allocated to readout
-        gap(int): number of temporal spikes allocated to gap
-        noise_spikes(int): number of disturbance spikes injected into the temporal gap
-
+        num_samples (int): Total number of samples in the generated dataset.
+        gap (int): Temporal delay (timesteps) between inputs A and B.
+        prob_0 (float): Nominal spike firing probability representing bit 0.
+        prob_1 (float): Nominal spike firing probability representing bit 1.
 
     Returns:
-        train_dataset (torch.utils.data.Subset): The subset used for training.
-        val_dataset (torch.utils.data.Subset): The subset used for testing.
+        torch.utils.data.ConcatDataset: Concatenated dataset combining all perturbation regimes.
     """
-    torch.manual_seed(seed)                                                      # Seed setup
-    dataset = classes.TemporalXORDataset(len_sign_a=len_sign_a, len_sign_b=len_sign_b,  # Dataset allocation
-                                len_sign_r=len_sign_r, gap=gap, noise_spikes=noise_spikes,
-                                prob_0 = prob_0, prob_1 = prob_1)   
+    n_part = num_samples // 4
+    n_last = num_samples - 3 * n_part
+    ds_clean = classes.TemporalXORDataset(num_samples=n_part, gap=gap, noise_spikes=0, prob_0=prob_0, prob_1=prob_1)
+    ds_noise1 = classes.TemporalXORDataset(num_samples=n_part, gap=gap, noise_spikes=1, prob_0=prob_0, prob_1=prob_1)
+    ds_noise2 = classes.TemporalXORDataset(num_samples=n_part, gap=gap, noise_spikes=2, prob_0=prob_0, prob_1=prob_1)
+    ds_stress = classes.TemporalXORDataset(
+        num_samples=n_last, gap=gap, noise_spikes=random.choice([1, 2]),
+        prob_0=random.choice([0.2, 0.3]), prob_1=random.choice([0.5, 0.6])
+    )
+    return torch.utils.data.ConcatDataset([ds_clean, ds_noise1, ds_noise2, ds_stress])
+
+def generate_train_validation_dataset(len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, 
+                                      gap=config.GAP, noise_spikes=config.NOISE_SPIKES, prob_0=config.PROB_0, 
+                                      prob_1=config.PROB_1, seed=config.SEED, noise=config.NOISE_AWARE):
+    """
+    Generates the Temporal XOR dataset and partitions it into training and validation subsets.
+
+    Args:
+        len_sign_a (int): Duration (timesteps) allocated to input signal A.
+        len_sign_b (int): Duration (timesteps) allocated to input signal B.
+        len_sign_r (int): Duration (timesteps) allocated to the terminal readout pulse.
+        gap (int): Duration (timesteps) separating signal A and signal B.
+        noise_spikes (int | list | tuple): Number or exact positions of gap disturbance spikes (when noise=False).
+        prob_0 (float): Spike firing probability representing bit 0.
+        prob_1 (float): Spike firing probability representing bit 1.
+        seed (int): Deterministic RNG seed for dataset generation and train/validation split.
+        noise (bool): If True, generates a multi-condition mixture dataset (clean, 1-2 spikes, shifted probabilities).
+
+    Returns:
+        tuple:
+            train_dataset (torch.utils.data.Subset): Subset allocated for model training.
+            val_dataset (torch.utils.data.Subset): Subset allocated for model validation.
+    """
+    random.seed(seed)                                                            # synchronize Python PRNG
+    torch.manual_seed(seed)                                                      # synchronize PyTorch PRNG
+    if noise:
+        dataset = _generate_noise_mixture_dataset(config.NUM_SAMPLES, gap, prob_0, prob_1)
+    else:
+        dataset = classes.TemporalXORDataset(len_sign_a=len_sign_a, len_sign_b=len_sign_b,
+                                            len_sign_r=len_sign_r, gap=gap, noise_spikes=noise_spikes,
+                                            prob_0=prob_0, prob_1=prob_1)
     n_train = int(config.TRAIN_SPLIT * len(dataset))                                    # length of train dataset
     n_val = len(dataset) - n_train                                                     # length of test dataset
     train_dataset, val_dataset = random_split(                                                       
         dataset,
         [n_train, n_val],
-        generator = torch.Generator().manual_seed(seed)
+        generator=torch.Generator().manual_seed(seed)
     )
 
     print("Train dataset e Validation dataset successfully generated.")
@@ -140,19 +178,33 @@ def generate_train_validation_dataset(len_sign_a=config.SIGN_A, len_sign_b=confi
     return train_dataset, val_dataset
 
 def generate_test_dataset(len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=config.READOUT, 
-                          gap=config.GAP, noise_spikes = config.NOISE_SPIKES, prob_0 = config.PROB_0, 
-                          prob_1 = config.PROB_1, seed = config.SEED):
+                          gap=config.GAP, noise_spikes=config.NOISE_SPIKES, prob_0=config.PROB_0, 
+                          prob_1=config.PROB_1, seed=config.SEED, noise=config.NOISE_AWARE):
     """
-    Function that generates the Temporal XOR dataset  for testing, using fixed seeds 
-    for reproducibility.
+    Generates a dedicated Temporal XOR dataset for model evaluation and robustness testing.
+
+    Args:
+        len_sign_a (int): Duration (timesteps) allocated to input signal A.
+        len_sign_b (int): Duration (timesteps) allocated to input signal B.
+        len_sign_r (int): Duration (timesteps) allocated to the terminal readout pulse.
+        gap (int): Duration (timesteps) separating signal A and signal B.
+        noise_spikes (int | list | tuple): Number or exact positions of gap disturbance spikes (when noise=False).
+        prob_0 (float): Spike firing probability representing bit 0.
+        prob_1 (float): Spike firing probability representing bit 1.
+        seed (int): Deterministic RNG seed for dataset generation.
+        noise (bool): If True, generates a multi-condition mixture dataset (clean, 1-2 spikes, shifted probabilities).
 
     Returns:
-        test_dataset (torch.utils.data.DataSet): dataset used for testing.
+        torch.utils.data.Dataset: Dataset object ready for DataLoader creation.
     """   
-    torch.manual_seed(seed)
-    dataset = classes.TemporalXORDataset(len_sign_a=len_sign_a, len_sign_b=len_sign_b,          # Dataset allocation
-                                    len_sign_r=len_sign_r, gap=gap, noise_spikes=noise_spikes, 
-                                    prob_0 = prob_0, prob_1 = prob_1)
+    random.seed(seed)                                                            # synchronize Python PRNG
+    torch.manual_seed(seed)                                                      # synchronize PyTorch PRNG
+    if noise:
+        dataset = _generate_noise_mixture_dataset(config.NUM_SAMPLES, gap, prob_0, prob_1)
+    else:
+        dataset = classes.TemporalXORDataset(len_sign_a=len_sign_a, len_sign_b=len_sign_b,
+                                      len_sign_r=len_sign_r, gap=gap, noise_spikes=noise_spikes, 
+                                      prob_0=prob_0, prob_1=prob_1)
     print("Test dataset successfully generated.")
     print(f"The length of the test dataset is: {len(dataset)}")
     return dataset
@@ -293,7 +345,7 @@ def evaluate(model, test_loader, loss_fn):
     acc_test = ((total_correct / total_samples) * 100).item()
     return avg_loss_test, acc_test
 
-def train_and_validate(model, train_loader, val_loader, optimizer, loss_fn, scheduler):
+def train_and_validate(model, train_loader, val_loader, optimizer, loss_fn, scheduler, noise=config.NOISE_AWARE):
     """
     Executes the complete training and evaluation pipeline for the Temporal XOR SNN.
 
@@ -310,6 +362,7 @@ def train_and_validate(model, train_loader, val_loader, optimizer, loss_fn, sche
         optimizer (torch.optim.Optimizer): The optimization algorithm used to update the network's weights.
         loss_fn (callable): The criterion used to compute the error gradient.
         scheduler (torch.optim.lr_scheduler.LRScheduler): Learning-rate scheduler updated once per epoch.
+        noise (bool): If True, model is marked as noise-aware upon disk persistence.
 
     Returns:
         None. The model is modified in-place during optimization, and the optimal weights 
@@ -335,7 +388,7 @@ def train_and_validate(model, train_loader, val_loader, optimizer, loss_fn, sche
         # in order to avoid saving parameters if the training is making the model worse)
         if avg_loss_val < best_loss_so_far:
             best_loss_so_far = avg_loss_val
-            store_model(model)
+            store_model(model, noise=noise)
 
     tot_time = time.perf_counter() - start_time
     minutes, seconds = int(tot_time // 60), tot_time % 60 
@@ -346,10 +399,10 @@ def train_and_validate(model, train_loader, val_loader, optimizer, loss_fn, sche
     print(f"Test time [min:sec]: {minutes}:{seconds:05.2f}\n")
     plot_loss_accuracy(loss_hist_train, loss_hist_test, acc_hist_train, acc_hist_test)
 
-def check_trained():
+def check_trained(noise=config.NOISE_AWARE):
     """ 
     Checks whether a model with current parameters and seed has already been trained.
-    Supports both new folder-based models (with JSON metadata) and legacy flat files.
+    Supports modern folder-based models (with JSON metadata) and legacy flat files.
     """
     models_dir = "models"
     if not os.path.exists(models_dir):
@@ -366,10 +419,11 @@ def check_trained():
                     cfg.get("learning_rate") == config.LEARNING_RATE and 
                     cfg.get("hidden_layer") == config.HIDDEN_LAYER and 
                     cfg.get("beta") == config.BETA and 
-                    cfg.get("seed") == config.SEED):
+                    cfg.get("seed") == config.SEED and
+                    cfg.get("noise_aware", False) == bool(noise)):
                     return True
-        # Fallback for legacy flat .pth files
-        elif item.endswith(".pth"):
+        # Fallback for legacy flat .pth files (assumed clean)
+        elif item.endswith(".pth") and not noise:
             check_str = f"E{config.EPOCHS}-LR{config.LEARNING_RATE}-H{config.HIDDEN_LAYER}-B{config.BETA}"
             if check_str in item:
                 return True
@@ -408,12 +462,20 @@ def test_model_robustness(model, loss_fn):
 
 ## --- SAVE FUNCTIONS ---
 
-def store_model(model):
+def store_model(model, noise=config.NOISE_AWARE):
     """
     Saves model weights (.pth) and exhaustive experiment metadata (.json)
-    inside a dedicated folder: models/<model_name>/
+    inside a dedicated folder: models/<model_name>-[Clean|Noise]/
+
+    Args:
+        model (torch.nn.Module): Trained SNN model to serialize.
+        noise (bool): Whether model was trained with noise mixture perturbations.
+
+    Returns:
+        None
     """
-    model_name = f"E{config.EPOCHS}-LR{config.LEARNING_RATE}-H{config.HIDDEN_LAYER}-B{config.BETA}-S{config.SEED}"
+    tag = "-Noise" if noise else "-Clean"
+    model_name = f"E{config.EPOCHS}-LR{config.LEARNING_RATE}-H{config.HIDDEN_LAYER}-B{config.BETA}-S{config.SEED}{tag}"
     model_dir = os.path.join("models", model_name)
     os.makedirs(model_dir, exist_ok=True)                                                       # create dedicated model folder
     # Save PyTorch weights
@@ -428,6 +490,7 @@ def store_model(model):
         "seed": config.SEED,
         "hidden_layer": config.HIDDEN_LAYER,
         "beta": config.BETA,
+        "noise_aware": bool(noise),
         "fluct_xi": getattr(config, "FLUCT_XI", None),
         "optimizer": config.OPTIMIZER.__name__,
         "optimizer_params": config.OPTIMIZER_PARAMS,
@@ -441,6 +504,7 @@ def store_model(model):
             "prob_0": config.PROB_0,
             "prob_1": config.PROB_1,
             "noise_spikes": config.NOISE_SPIKES,
+            "noise_aware": bool(noise),
             "batch_size": config.BATCH_SIZE,
             "train_split": config.TRAIN_SPLIT,
             "num_samples": config.NUM_SAMPLES
@@ -451,9 +515,20 @@ def store_model(model):
         json.dump(model_config, f, indent=4)                                                    # export metadata snapshot
     print(f"\nModel and configuration saved to: {model_dir}")
 
-def load_model(epochs=config.EPOCHS, lr=config.LEARNING_RATE, hidden=config.HIDDEN_LAYER, beta=config.BETA, seed=None):
+def load_model(epochs=config.EPOCHS, lr=config.LEARNING_RATE, hidden=config.HIDDEN_LAYER, beta=config.BETA, seed=None, noise=config.NOISE_AWARE):
     """
     Loads model weights from modern folder format or legacy flat .pth file.
+
+    Args:
+        epochs (int): Number of training epochs.
+        lr (float): Learning rate used for training.
+        hidden (int): Number of hidden LIF neurons.
+        beta (float): Membrane decay factor.
+        seed (int | None): Model random seed filter. If None, matches any seed.
+        noise (bool): Whether model was trained with noise mixture perturbations.
+
+    Returns:
+        classes.XORSNN | None: Instantiated PyTorch model loaded on active device, or None.
     """
     models_dir = "models"
     if not os.path.exists(models_dir):
@@ -472,7 +547,8 @@ def load_model(epochs=config.EPOCHS, lr=config.LEARNING_RATE, hidden=config.HIDD
                 match = (cfg.get("epochs") == int(epochs) and 
                          float(cfg.get("learning_rate")) == float(lr) and 
                          int(cfg.get("hidden_layer")) == int(hidden) and 
-                         float(cfg.get("beta")) == float(beta))
+                         float(cfg.get("beta")) == float(beta) and
+                         cfg.get("noise_aware", False) == bool(noise))
                 if seed is not None:
                     match = match and (cfg.get("seed") == int(seed))
                 if match:
@@ -481,14 +557,14 @@ def load_model(epochs=config.EPOCHS, lr=config.LEARNING_RATE, hidden=config.HIDD
                     print(f"Model correctly loaded from: {pth_file}")
                     return model.to(config.DEVICE)
         # Legacy flat .pth file fallback
-        elif item.endswith(".pth"):
+        elif item.endswith(".pth") and not noise:
             check_str = f"E{epochs}-LR{lr}-H{hidden}-B{beta}"
             if check_str in item:
                 model = classes.XORSNN(hidden_layer=int(hidden), beta=float(beta))
                 model.load_state_dict(torch.load(item_path, map_location=config.DEVICE))
                 print(f"Legacy model loaded from: {item_path}")
                 return model.to(config.DEVICE)
-    print(f"No model found matching E{epochs}-LR{lr}-H{hidden}-B{beta}")
+    print(f"No model found matching E{epochs}-LR{lr}-H{hidden}-B{beta} (noise_aware={noise})")
     return None
 
 ## --- PLOTTING AND PRINTING FUNCTIONS ---
@@ -510,6 +586,7 @@ def print_parameters():
     print("|    Training properties:                                                 |")
     print(f"|       Learning rate: {config.LEARNING_RATE:.4f}                                             |")
     print(f"|       Number of epochs: {config.EPOCHS}                                            |")
+    print(f"|       Noise-aware training: {getattr(config, 'NOISE_AWARE', False)}                                       |")
     print("|                                                                         |")
     print("===========================================================================\n")
 

@@ -1,5 +1,5 @@
 {
-    "model_name": "E1000-LR0.001-H50-B0.95-S142",
+    "model_name": "E1000-LR0.001-H50-B0.95-S142-Clean",
     "saved_at": "2026-09-30 17:00:00",
     "epochs": 1000,
     "learning_rate": 0.001,
@@ -23,6 +23,8 @@
         "noise_spikes": 0,
         "batch_size": 32,
         "train_split": 0.8,
-        "num_samples": 1000
-    }
+        "num_samples": 1000,
+        "noise_aware": false
+    },
+    "noise_aware": false
 }

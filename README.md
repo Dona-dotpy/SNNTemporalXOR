@@ -54,14 +54,19 @@ Measures whether noise is concentrated near the start (high decay dissipation) o
 
 ### 3. 🎯 Systematic Hyperparameter Optimization
 * Optimization driven by **Optuna** with SQLite database persistence (`optuna.study`).
+* **Single & Multi-Objective Pareto Optimization**: Trade-off optimization between nominal validation loss and robust validation accuracy under adversarial noise.
+* **Curriculum Learning**: Staged training progression from clean baseline, to temporal jitter, to noise injection, up to combined full stress.
+* **Frozen Benchmark Validation**: Static balanced validation loaders with isolated PRNG states to eliminate stochastic evaluation drift.
 * Exploration of network width, learning rates, schedulers (MultiStepLR, CosineAnnealing), and weight initialization parameters.
 * Real-time metrics streaming and loss visualization via **Weights & Biases (W&B)**.
-* **Interrupted-Trial Checkpointing**: Robust recovery mechanism saving RNG states, model weights, and optimizer states every 10 epochs.
+* **Interrupted-Trial Checkpointing**: Robust recovery mechanism saving full PyTorch and Python RNG states, model weights, and optimizer/scheduler states.
 
 ### 4. 🛡️ Multi-Dimensional Robustness Framework
 * **Seed Variability**: Multiple training runs with independent RNG seeds to assess convergence reliability.
 * **Gap Scaling**: Systematic evaluation of memory degradation as the temporal gap is increased across both training and frozen-inference regimes.
-* **Noise Sensitivity**: Degradation curves mapping accuracy versus the number and temporal center of mass of gap disturbance spikes.
+* **Noise Sensitivity & 3D Landscapes**: Degradation curves and 3D surface mapping accuracy across temporal gap duration, noise spike counts, and spike arrival timing.
+* **Firing Probability Sensitivity**: Rigorous mapping of CMOS-like noise margins across $P_0$ and $P_1$ emission probabilities.
+* **Cross-Gap Generalization & Transfer Matrix**: Systematic benchmarking of models trained across different gap lengths (`GAPS_TRAIN`) and evaluated across all test gap lengths (`GAPS_TEST`) with 2D heatmaps.
 
 ---
 
@@ -96,7 +101,7 @@ Run the interactive pipeline to train or inspect a trained model:
 python scripts/main.py
 ```
 > [!TIP]
-> `main.py` detects whether an optimized model matching `config.py` already exists in `models/`. It allows you to inspect terminal ASCII spike plots or test model robustness interactively.
+> `main.py` detects whether an optimized model matching `config.py` already exists in `models/`. Trained models are unequivocally tagged as `<model_name>-Clean` or `<model_name>-Noise` with matching `"noise_aware"` JSON metadata.
 
 ### 3. Robustness Experiments
 Execute seed invariance, gap scaling, and noise sensitivity experiments:
@@ -119,15 +124,18 @@ SNNTemporalXOR/
 ├── images/
 │   └── Training_FF/                   # Loss and accuracy plots from FeedForward SNN runs
 │
-├── models/                            # Serialized PyTorch model weights (.pth)
+├── models/                            # Trained models structured in dedicated folders:
+│   └── <model_name>-[Clean|Noise]/   # Directory with weights (.pth) and metadata (.json, noise_aware tag)
 │
 ├── optimization/                      # Config-driven Optuna optimization suite
 │   ├── inputs/                        # Study configuration JSON files (search spaces, fixed params)
 │   │   ├── test_1_broad_100neurons.json
-│   │   └── test_2_nominal_50neurons.json
+│   │   ├── test_2_nominal_50neurons.json
+│   │   └── test_3_robust_pareto.json
 │   └── studies/                       # Isolated environments per experiment
 │       ├── test_1_broad_100neurons/   # Historical baseline run (1000 trials, SQLite DB, checkpoints)
-│       └── test_2_nominal_50neurons/  # Mini-HPO 50-neuron run (DB, config snapshot, best models)
+│       ├── test_2_nominal_50neurons/  # Mini-HPO 50-neuron run (DB, config snapshot, best models)
+│       └── test_3_robust_pareto/      # Multi-Objective Pareto study (DB, curriculum checkpoints)
 │
 ├── robustness_results/                # Test outputs, JSON summaries and figures
 │
@@ -166,9 +174,11 @@ All global parameters are managed centrally in [`scripts/config.py`](scripts/con
 | `READOUT` | `10` | Timesteps allocated to the terminal readout pulse |
 | `PROB_0`, `PROB_1` | `0.3, 0.6` | Spike firing probabilities representing bit 0 and bit 1 |
 | `NOISE_SPIKES` | `0` | Default disturbance spikes in gap (`0` for clean training baseline) |
-| `BETA` | `0.95` | LIF membrane potential decay factor ($\beta = e^{-\Delta t / \tau}$) |
-| `INPUT_LAYER`, `HIDDEN_LAYER` | `3, 100` | Network dimensions (Channels A, B, Readout $\to$ Hidden) |
-| `FLUCT_XI` | `1.223` | Fluctuation-driven initialization scaling factor |
+| `NOISE_AWARE` | `False` | Enables noise mixture training and selects/saves `-Noise` models |
+| `BETA` | `0.979` | LIF membrane potential decay factor ($\beta = e^{-\Delta t / \tau}$, $\tau \approx 47.9$ timesteps) |
+| `INPUT_LAYER`, `HIDDEN_LAYER` | `3, 50` | Network dimensions (Channels A, B, Readout $\to$ Hidden) |
+| `FLUCT_XI` | `1.292` | Fluctuation-driven initialization scaling factor |
+| `LEARNING_RATE` | `0.00498` | Optimizer base learning rate (AdamW with weight decay $10^{-6}$) |
 
 ---
 

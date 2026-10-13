@@ -2,7 +2,7 @@
 Global Configuration and Parameter Settings for Temporal XOR SNN.
 Serves as the Single Source of Truth for the entire repository, defining:
 - Temporal setup: durations of signals A, B, GAP, and terminal Readout.
-- Rate coding: spike firing probabilities representing bits 0 and 1.
+- Rate coding & noise: spike firing probabilities and noise-aware mixture regimes.
 - Network & LIF parameters: layer dimensions and membrane decay factor (beta).
 - Optimizer & learning rate scheduler hyperparameter presets.
 - Dynamic hardware allocation (CPU, CUDA, MPS) based on batch workload.
@@ -21,6 +21,7 @@ SIGN_A, SIGN_B = 10, 10                             # number of timesteps of sig
 GAP, READOUT = 30, 10                               # numers of timesteps of gap and readout
 TOT_TIMESTEPS = SIGN_A + SIGN_B + GAP + READOUT
 NOISE_SPIKES = 0     
+NOISE_AWARE = False                                 # whether dataset uses noise mixture perturbation
 
 ## --- Dataset ---
 BATCH_SIZE = 32
