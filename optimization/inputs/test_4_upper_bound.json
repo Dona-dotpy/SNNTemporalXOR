@@ -1,0 +1,89 @@
+{
+    "study_name": "test_4_upper_bound",
+    "description": "HPO 4: Upper Bound Ideale con neuroni eterogenei (learn_beta=True, reset subtract), dynamic mixture training 40/20/20/20, early stopping e confronto scheduler",
+    "target_trials": 250,
+    "epochs": 1000,
+    "checkpoint_interval": 25,
+    "training_mode": "mixture",
+    "mixture_training": {
+        "num_samples": 1000,
+        "clean_ratio": 0.40,
+        "jitter_ratio": 0.20,
+        "noise_ratio": 0.20,
+        "gap_min": 20,
+        "gap_max": 40
+    },
+    "early_stopping": {
+        "enabled": true,
+        "warmup_epochs": 200,
+        "patience": 100
+    },
+    "directions": ["minimize", "maximize"],
+    "seed": 1542,
+    "sampler": {
+        "type": "TPESampler",
+        "seed": 1542
+    },
+    "pruner": {
+        "type": "NopPruner"
+    },
+    "enqueued_trials": [
+        {
+            "beta": 0.97935,
+            "fluct_xi": 1.2924,
+            "lr": 0.004979,
+            "lr_bio_ratio": 0.20,
+            "scheduler": "CosineAnnealingLR",
+            "cosine_eta_min_factor": 0.01
+        }
+    ],
+    "fixed_params": {
+        "hidden_layer": 50,
+        "learn_beta": true,
+        "reset_mechanism": "subtract",
+        "optimizer": "AdamW",
+        "amsgrad": false,
+        "weight_decay": 1e-06,
+        "beta1": 0.85,
+        "beta2": 0.953,
+        "initialization": "fluctuation_driven"
+    },
+    "search_space": {
+        "beta_min": 0.93,
+        "beta_max": 0.985,
+        "fluct_xi_min": 1.10,
+        "fluct_xi_max": 1.70,
+        "lr_min": 0.002,
+        "lr_max": 0.008,
+        "lr_bio_ratio_min": 0.05,
+        "lr_bio_ratio_max": 0.40,
+        "schedulers": [
+            "CosineAnnealingLR",
+            "MultiStepLR",
+            "LinearLR"
+        ],
+        "cosine_eta_min_factor_min": 0.001,
+        "cosine_eta_min_factor_max": 0.1,
+        "multistep_patterns": [
+            "25_50_75"
+        ],
+        "multistep_gamma_min": 0.65,
+        "multistep_gamma_max": 0.85,
+        "linear_start_factor_min": 0.30,
+        "linear_start_factor_max": 0.80,
+        "linear_iters_min_frac": 0.05,
+        "linear_iters_max_frac": 0.30
+    },
+    "validation": {
+        "fixed_seed": 2026,
+        "balanced_xor_classes": true,
+        "nominal_samples": 1000,
+        "robust_samples": 1000,
+        "robust_conditions": [
+            {"name": "noise_1_spike", "gap": 30, "noise_spikes": 1, "p0": 0.3, "p1": 0.6, "samples": 250},
+            {"name": "noise_2_spikes", "gap": 30, "noise_spikes": 2, "p0": 0.3, "p1": 0.6, "samples": 250},
+            {"name": "jitter_gap_25", "gap": 25, "noise_spikes": 1, "p0": 0.3, "p1": 0.6, "samples": 250},
+            {"name": "jitter_gap_35", "gap": 35, "noise_spikes": 1, "p0": 0.3, "p1": 0.6, "samples": 250}
+        ]
+    }
+}

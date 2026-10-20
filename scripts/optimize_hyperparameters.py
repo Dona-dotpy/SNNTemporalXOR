@@ -4,7 +4,7 @@ Config-driven Hyperparameter Optimization engine for SNN models using Optuna and
 Architecture & Pipeline:
 - Driven entirely by JSON experiment files located in `optimization/inputs/<study_name>.json`.
 - Supports both single-objective optimization (nominal loss) and Multi-Objective Pareto optimization
-  (trading off nominal validation loss and robust validation accuracy) with Curriculum Learning.
+  (trading off nominal validation loss and robust validation accuracy) with Curriculum Learning or Dynamic Mixture Training.
 - Automatically initializes and isolates study environments under `optimization/studies/<study_name>/`:
     * Persistent SQLite database: `<study_name>.db`
     * Configuration snapshot: `config.json`
@@ -241,6 +241,45 @@ def get_curriculum_loader(epoch, curriculum_cfg=None, num_samples=800):
     random.shuffle(batches)                                                             # interleave batches across regimes
     return batches
 
+def get_mixture_loader(mixture_cfg=None, num_samples=1000):
+    """
+    Generates training batch collection matching the Anchor-Weighted mixture regime:
+    - 40% nominal clean (gap=30, noise=0, prob 0.3/0.6)
+    - 20% temporal jitter (gap in [20, 40], noise=0)
+    - 20% impulse noise in gap (gap=30, 1-2 spikes)
+    - 20% combined stress (gap in [20, 40], 1-2 spikes, shifted probabilities)
+    """
+    cfg = mixture_cfg or {}
+    c_ratio = cfg.get("clean_ratio", 0.40)
+    j_ratio = cfg.get("jitter_ratio", 0.20)
+    n_ratio = cfg.get("noise_ratio", 0.20)
+
+    n_c = int(num_samples * c_ratio)
+    n_j = int(num_samples * j_ratio)
+    n_n = int(num_samples * n_ratio)
+    n_f = num_samples - (n_c + n_j + n_n)
+
+    gap_min = cfg.get("gap_min", 20)
+    gap_max = cfg.get("gap_max", 40)
+
+    ds_clean = classes.TemporalXORDataset(num_samples=n_c, gap=30, noise_spikes=0, prob_0=0.3, prob_1=0.6)
+    ds_jitter = classes.TemporalXORDataset(num_samples=n_j, gap=random.randint(gap_min, gap_max), noise_spikes=0, prob_0=0.3, prob_1=0.6)
+    ds_noise = classes.TemporalXORDataset(num_samples=n_n, gap=30, noise_spikes=random.choice([1, 2]), prob_0=0.3, prob_1=0.6)
+    ds_full = classes.TemporalXORDataset(
+        num_samples=n_f,
+        gap=random.randint(gap_min, gap_max),
+        noise_spikes=random.choice([1, 2]),
+        prob_0=random.choice([0.25, 0.35]),
+        prob_1=random.choice([0.55, 0.65])
+    )
+    batches = []
+    batches.extend(list(DataLoader(ds_clean, batch_size=config.BATCH_SIZE, shuffle=True)))
+    batches.extend(list(DataLoader(ds_jitter, batch_size=config.BATCH_SIZE, shuffle=True)))
+    batches.extend(list(DataLoader(ds_noise, batch_size=config.BATCH_SIZE, shuffle=True)))
+    batches.extend(list(DataLoader(ds_full, batch_size=config.BATCH_SIZE, shuffle=True)))
+    random.shuffle(batches)
+    return batches
+
 # study functions 
 
 ## --- CONFIGURATION HELPERS ---
@@ -302,12 +341,29 @@ def define_optimizer(trial, model, lr, fixed_params, search_space):
         nesterov = (fixed_params.get("nesterov") if "nesterov" in fixed_params else trial.suggest_categorical("nesterov", [True, False])) if momentum > 0 else False
         beta1, beta2, ams_grad = None, None, None
 
+    # Parameter groups dedicati
+    lr_bio_ratio = fixed_params.get("lr_bio_ratio") or (
+        trial.suggest_float("lr_bio_ratio", search_space["lr_bio_ratio_min"], search_space["lr_bio_ratio_max"], log=True)
+        if "lr_bio_ratio_min" in search_space else 1.0
+    )
+    
+    weight_params = [p for name, p in model.named_parameters() if 'beta' not in name]
+    bio_params    = [p for name, p in model.named_parameters() if 'beta' in name]
+    
+    if bio_params and lr_bio_ratio != 1.0:
+        param_groups = [
+            {'params': weight_params, 'lr': lr, 'weight_decay': weight_decay},
+            {'params': bio_params,    'lr': lr * lr_bio_ratio, 'weight_decay': 0.0}
+        ]
+    else:
+        param_groups = model.parameters()
+
     if optimizer_name == "Adam":
-        return torch.optim.Adam(model.parameters(), lr=lr, betas=(beta1, beta2), weight_decay=weight_decay, amsgrad=ams_grad)
+        return torch.optim.Adam(param_groups, lr=lr, betas=(beta1, beta2), weight_decay=weight_decay, amsgrad=ams_grad)
     elif optimizer_name == "AdamW":
-        return torch.optim.AdamW(model.parameters(), lr=lr, betas=(beta1, beta2), weight_decay=weight_decay, amsgrad=ams_grad)
+        return torch.optim.AdamW(param_groups, lr=lr, betas=(beta1, beta2), weight_decay=weight_decay, amsgrad=ams_grad)
     elif optimizer_name == "SGD":
-        return torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay, nesterov=nesterov)
+        return torch.optim.SGD(param_groups, lr=lr, momentum=momentum, weight_decay=weight_decay, nesterov=nesterov)
 
 def define_scheduler(trial, optimizer, lr, epochs, fixed_params, search_space):
     """Builds LR scheduler using fixed parameters when present or sampling from search space."""
@@ -382,7 +438,7 @@ def define_initialization(trial, model, input_activity, fixed_params, search_spa
             elif init_name == "fluctuation_driven":
                 lif_layer = model.net[i + 1]
                 threshold = lif_layer.threshold.item()
-                beta = lif_layer.beta.item() if isinstance(lif_layer.beta, torch.Tensor) else float(lif_layer.beta)
+                beta = lif_layer.beta.mean().item() if isinstance(lif_layer.beta, torch.Tensor) else float(lif_layer.beta)
                 sigma_u = threshold / xi                                                          # membrane fluctuation target std
                 epsilon_hat = 1.0 / (1.0 - beta ** 2)                                                   # discrete LIF decay kernel sum
                 weight_std = sigma_u / (module.in_features * input_activity * epsilon_hat) ** 0.5
@@ -433,7 +489,9 @@ def objective(trial, study_config, study, clean_val_loader, robust_val_loaders, 
         trial.suggest_float("beta", search_space["beta_min"], search_space["beta_max"])
         if "beta_min" in search_space else config.BETA
     )
-    model = classes.XORSNN(hidden_layer=hidden_layer, beta=beta).to(config.DEVICE)
+    learn_beta = fixed_params.get("learn_beta", False)
+    reset_mechanism = fixed_params.get("reset_mechanism", "zero")
+    model = classes.XORSNN(hidden_layer=hidden_layer, beta=beta, learn_beta=learn_beta, reset_mechanism=reset_mechanism).to(config.DEVICE)
     define_initialization(trial, model, input_activity, fixed_params, search_space)
 
     # Learning rate and optimizer/scheduler definition
@@ -457,9 +515,21 @@ def objective(trial, study_config, study, clean_val_loader, robust_val_loaders, 
         checkpoint = load_checkpoint(trial, model, optimizer, scheduler, checkpoints_dir)
         start_epoch, lowest_loss = (0, float("inf")) if checkpoint is None else (checkpoint[0], checkpoint[1])
 
+        early_stopping_cfg = study_config.get("early_stopping", {})
+        use_early_stopping = early_stopping_cfg.get("enabled", False)
+        patience = early_stopping_cfg.get("patience", 100)
+        warmup_epochs = early_stopping_cfg.get("warmup_epochs", 200)
+        patience_counter = 0
+        best_early_metric = float("inf")
+
         for epoch in range(start_epoch, epochs):
             current_lr = optimizer.param_groups[0]["lr"]
-            current_train_loader = get_curriculum_loader(epoch, study_config.get("curriculum", {})) if "curriculum" in study_config else train_loader
+            if study_config.get("training_mode") == "mixture" or "mixture_training" in study_config:
+                current_train_loader = get_mixture_loader(study_config.get("mixture_training", {}))
+            elif "curriculum" in study_config:
+                current_train_loader = get_curriculum_loader(epoch, study_config.get("curriculum", {}))
+            else:
+                current_train_loader = train_loader
             avg_loss_train, acc_train = functions.train(model, current_train_loader, optimizer, loss_fn)
             avg_loss_val, acc_val = functions.evaluate(model, clean_val_loader, loss_fn)
 
@@ -522,16 +592,43 @@ def objective(trial, study_config, study, clean_val_loader, robust_val_loaders, 
                 if trial.should_prune():
                     run.summary["status"] = "pruned"
                     raise optuna.TrialPruned()
+            elif use_early_stopping and epoch >= warmup_epochs:
+                robust_losses = [functions.evaluate(model, l, loss_fn)[0] for l in robust_val_loaders]
+                avg_robust_loss = sum(robust_losses) / len(robust_losses)
+                combined_metric = avg_loss_val + avg_robust_loss
 
-        # Final evaluation on frozen checkpoint (epoch 1700)
+                if combined_metric < best_early_metric - 1e-4:
+                    best_early_metric = combined_metric
+                    patience_counter = 0
+                else:
+                    patience_counter += 1
+                    if patience_counter >= patience:
+                        print(f"Trial {trial.number}: Early stopping triggered at epoch {epoch + 1} (patience {patience}).")
+                        break
+
+        # Final evaluation on frozen checkpoint
         if is_multi_objective:
             final_clean_loss, final_clean_acc = functions.evaluate(model, clean_val_loader, loss_fn)
             robust_accs = [functions.evaluate(model, l, loss_fn)[1] for l in robust_val_loaders]
             final_robust_acc = sum(robust_accs) / len(robust_accs)
-            
+
+            # Compute neuromorphic efficiency: mean spikes per sample
+            total_spikes_count = 0
+            total_eval_samples = 0
+            model.eval()
+            with torch.no_grad():
+                for d, _ in clean_val_loader:
+                    d = d.to(config.DEVICE)
+                    spk_out, _ = model(d)
+                    total_spikes_count += spk_out.sum().item()
+                    total_eval_samples += d.size(0)
+            mean_spikes = total_spikes_count / total_eval_samples if total_eval_samples > 0 else 0.0
+
             run.summary["final_clean_loss"] = final_clean_loss
             run.summary["final_clean_accuracy"] = final_clean_acc
             run.summary["final_robust_accuracy"] = final_robust_acc
+            run.summary["mean_spikes_per_sample"] = mean_spikes
+            trial.set_user_attr("mean_spikes_per_sample", mean_spikes)
 
             # Save the final Pareto model
             trial_best_dir = os.path.join(best_models_dir, f"trial_{trial.number}")
@@ -539,10 +636,11 @@ def objective(trial, study_config, study, clean_val_loader, robust_val_loaders, 
             torch.save(
                 {
                     "trial_number": trial.number,
-                    "epoch": epochs - 1,
+                    "epoch": epoch,
                     "clean_loss": final_clean_loss,
                     "clean_accuracy": final_clean_acc,
                     "robust_accuracy": final_robust_acc,
+                    "mean_spikes_per_sample": mean_spikes,
                     "params": {**fixed_params, **trial.params},
                     "model_state_dict": model.state_dict()
                 },

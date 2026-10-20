@@ -251,7 +251,7 @@ def fluctuation_driven_initialization(model, train_loader, xi=getattr(config, "F
             lif_layer = model.net[i + 1]
             threshold = lif_layer.threshold.item()
             # Read beta directly from the LIF instance (tensor or scalar)
-            beta = lif_layer.beta.item() if isinstance(lif_layer.beta, torch.Tensor) else float(lif_layer.beta)
+            beta = lif_layer.beta.mean().item() if isinstance(lif_layer.beta, torch.Tensor) else float(lif_layer.beta)
             fan_in = module.in_features
             sigma_u = threshold / xi                                                            # use sampled fluctuation xi
             epsilon_hat = 1.0 / (1.0 - beta ** 2)
@@ -295,6 +295,8 @@ def train(model, train_loader, optimizer, loss_fn):
         optimizer.zero_grad()                                               # zero the gradient
         loss_train.backward()                                               # compute gradients (d Loss/d weight) for all weights via backpropagation
         optimizer.step()                                                    # update weights: w_new = w - lr * (m / (sqrt(v) + eps))
+        if hasattr(model, "clamp_beta"):
+            model.clamp_beta()
 
         pred = torch.argmax(total_spikes, dim=1)                            # compute which is the predicted output from the number of spikes
         total_correct += (pred == label).float().sum()                      # count the number of correct predictions

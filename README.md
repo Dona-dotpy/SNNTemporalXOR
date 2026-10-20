@@ -131,11 +131,13 @@ SNNTemporalXOR/
 │   ├── inputs/                        # Study configuration JSON files (search spaces, fixed params)
 │   │   ├── test_1_broad_100neurons.json
 │   │   ├── test_2_nominal_50neurons.json
-│   │   └── test_3_robust_pareto.json
+│   │   ├── test_3_robust_pareto.json
+│   │   └── test_4_upper_bound.json
 │   └── studies/                       # Isolated environments per experiment
 │       ├── test_1_broad_100neurons/   # Historical baseline run (1000 trials, SQLite DB, checkpoints)
 │       ├── test_2_nominal_50neurons/  # Mini-HPO 50-neuron run (DB, config snapshot, best models)
-│       └── test_3_robust_pareto/      # Multi-Objective Pareto study (DB, curriculum checkpoints)
+│       ├── test_3_robust_pareto/      # Multi-Objective Pareto study (DB, curriculum checkpoints)
+│       └── test_4_upper_bound/        # Ideal Upper Bound study (heterogeneous beta, soft reset, mixture)
 │
 ├── robustness_results/                # Test outputs, JSON summaries and figures
 │

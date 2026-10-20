@@ -73,6 +73,9 @@ class XORSNN(nn.Module):
         input_layer (int): Number of input features (e.g., 3 for Inputs A, B + Control).
         hidden_layer (int): Number of neurons in the hidden layer (e.g., 50).
         output_layer (int): Number of output neurons (e.g., 2).
+        beta (float): Base membrane potential decay factor (or initial mean if learn_beta=True).
+        learn_beta (bool): If True, instantiates independent learnable beta per hidden neuron.
+        reset_mechanism (str): LIF reset dynamics ('zero' for hard reset, 'subtract' for soft reset).
 
     Input `x` in the forward pass:
         x (torch.Tensor): Tensor of shape `[batch_size, input_features, time_steps]`.
@@ -85,16 +88,29 @@ class XORSNN(nn.Module):
             - spk (torch.Tensor): The output spikes (0.0 or 1.0). Shape: `[batch_size, output_layer]`.
             - mem (torch.Tensor): The updated membrane potential. Shape: `[batch_size, output_layer]`.
     """
-    def __init__(self, input_layer=config.INPUT_LAYER, hidden_layer=config.HIDDEN_LAYER, output_layer=config.OUTPUT_LAYER, beta=config.BETA):
+    def __init__(self, input_layer=config.INPUT_LAYER, hidden_layer=config.HIDDEN_LAYER, output_layer=config.OUTPUT_LAYER, 
+                 beta=config.BETA, learn_beta = False, reset_mechanism = "zero"):
         super().__init__()
         self.input_layer = input_layer
 
+        # if learn_beta=True, hidden_beta becomes a 1D tensor of 50 elements
+        if learn_beta:
+            hidden_beta = torch.full((hidden_layer,), beta, dtype=torch.float32)
+        else:
+            hidden_beta = beta
+
         self.net = nn.Sequential(
             nn.Linear(input_layer, hidden_layer),
-            snn.Leaky(beta=beta, init_hidden = True),                           # init_hidden = True stores the mebrane potential between different calls
+            snn.Leaky(beta=hidden_beta, learn_beta=learn_beta, init_hidden = True, reset_mechanism=reset_mechanism),    # init_hidden = True stores the mebrane potential between different calls
             nn.Linear(hidden_layer, output_layer),
-            snn.Leaky(beta=beta, init_hidden = True, output = True)             # output = True gives back the membrane potential, too
+            snn.Leaky(beta=beta, init_hidden = True, output = True, reset_mechanism=reset_mechanism)                    # output = True gives back the membrane potential, too
         )
+
+    def clamp_beta(self, min_val=0.80, max_val=0.999):
+        """Clamping in-place di sicurezza per i beta eterogenei."""
+        with torch.no_grad():
+            if isinstance(self.net[1].beta, torch.Tensor):
+                self.net[1].beta.clamp_(min_val, max_val)
 
     def forward(self, x):
 
