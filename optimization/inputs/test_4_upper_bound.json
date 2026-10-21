@@ -1,7 +1,7 @@
 {
     "study_name": "test_4_upper_bound",
-    "description": "HPO 4: Upper Bound Ideale con neuroni eterogenei (learn_beta=True, reset subtract), dynamic mixture training 40/20/20/20, early stopping e confronto scheduler",
-    "target_trials": 250,
+    "description": "HPO 4: Upper Bound Ideale con neuroni eterogenei (learn_beta=True, reset subtract), dynamic mixture training 40/20/20/20, early stopping e confronto scheduler (Cosine vs WarmRestarts)",
+    "target_trials": 350,
     "epochs": 1000,
     "checkpoint_interval": 25,
     "training_mode": "mixture",
@@ -59,20 +59,24 @@
         "lr_bio_ratio_max": 0.40,
         "schedulers": [
             "CosineAnnealingLR",
-            "MultiStepLR",
-            "LinearLR"
+            "CosineAnnealingWarmRestarts",
+            "MultiStepLR"
         ],
         "cosine_eta_min_factor_min": 0.001,
-        "cosine_eta_min_factor_max": 0.1,
+        "cosine_eta_min_factor_max": 0.05,
         "multistep_patterns": [
             "25_50_75"
         ],
         "multistep_gamma_min": 0.65,
         "multistep_gamma_max": 0.85,
-        "linear_start_factor_min": 0.30,
-        "linear_start_factor_max": 0.80,
-        "linear_iters_min_frac": 0.05,
-        "linear_iters_max_frac": 0.30
+        "warmrestart_t0_min_frac": 0.10,
+        "warmrestart_t0_max_frac": 0.25,
+        "warmrestart_t_mult": [
+            1,
+            2
+        ],
+        "warmrestart_eta_min_factor_min": 0.001,
+        "warmrestart_eta_min_factor_max": 0.05
     },
     "validation": {
         "fixed_seed": 2026,
