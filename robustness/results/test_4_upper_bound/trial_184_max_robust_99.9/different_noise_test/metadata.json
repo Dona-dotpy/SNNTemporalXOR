@@ -1,0 +1,52 @@
+{
+    "test_name": "different_noise_test",
+    "date": "2026-10-22_10-06-20",
+    "model": "XORSNN",
+    "device": "cpu",
+    "epochs": 1000,
+    "hidden_layer": 50,
+    "beta": 0.979350180923352,
+    "optimizer": "AdamW",
+    "optimizer_params": {
+        "lr": 0.004978658660260544,
+        "betas": [
+            0.85,
+            0.953
+        ],
+        "weight_decay": 1e-06,
+        "amsgrad": false
+    },
+    "scheduler": "MultiStepLR",
+    "scheduler_params": {
+        "milestones": [
+            250,
+            500,
+            750
+        ],
+        "gamma": 0.7664475228425424
+    },
+    "loss_fn": "CrossEntropyLoss",
+    "initialization": "fluctuation_driven",
+    "fluct_xi": 1.2923776896484005,
+    "tested_parameter": "noise_spikes",
+    "tested_values": [
+        1,
+        2,
+        3,
+        4
+    ],
+    "num_samples": 1000,
+    "train_split": 0.8,
+    "prob_0": 0.3,
+    "prob_1": 0.6,
+    "sign_a": 10,
+    "sign_b": 10,
+    "nominal_gap": 30,
+    "readout": 10,
+    "results": {
+        "avg_best_val_loss": 1.1550879304534853,
+        "std_best_val_loss": 1.2818057537078857,
+        "avg_val_accuracy": 73.4478872970796,
+        "std_val_accuracy": 21.536531448364258
+    }
+}
