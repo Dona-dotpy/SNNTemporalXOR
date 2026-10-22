@@ -11,7 +11,8 @@ Evaluates network stability and temporal memory under varying conditions:
 - Gap-Noise Interaction: evaluates 3D resilience surface crossing temporal GAP length and noise count.
 - Cross-Gap Generalization: trains models across `GAPS_TRAIN` (with noise) and benchmarks each across `GAPS_TEST`.
 
-Automatically logs metrics, curves, and summary CSVs in 'robustness_results/'.
+Automatically logs metrics, curves, and summary CSVs under 'robustness/results/<study_name>/<model_name>/'.
+Configurable via JSON inputs under 'robustness/inputs/'.
 """
 
 ## --- Libraries ---
@@ -82,7 +83,8 @@ GAP_NOISE_COUNTS = [0, 1, 2, 3, 4]                          # noise spike counts
 
 def robustness_train_seeds(model_class, train_loader, val_loader, optimizer_class=config.OPTIMIZER,
                                     optimizer_params = config.OPTIMIZER_PARAMS, loss_fn_class=config.LOSS_FN, 
-                                    scheduler_class = config.SCHEDULER, scheduler_params = config.SCHEDULER_PARAMS):
+                                    scheduler_class = config.SCHEDULER, scheduler_params = config.SCHEDULER_PARAMS,
+                                    output_dir=None, show_plot=False):
 
     """
     Tests the robustness of the training procedure across different random seeds.
@@ -113,6 +115,8 @@ def robustness_train_seeds(model_class, train_loader, val_loader, optimizer_clas
         loss_fn_class (type): Loss function class.
         scheduler_class (type): Learning-rate scheduler class.
         scheduler_params (dict): Parameters passed to the scheduler constructor.
+        output_dir (str, optional): Target directory to save artifacts. If None, uses default timestamped path.
+        show_plot (bool, optional): If True, opens interactive matplotlib window; closes figure otherwise.
 
     Returns:
         tuple:
@@ -203,16 +207,20 @@ def robustness_train_seeds(model_class, train_loader, val_loader, optimizer_clas
         optimizer_params=optimizer_params,
         loss_fn_class=loss_fn_class,
         scheduler_class=scheduler_class,
-        scheduler_params=scheduler_params
+        scheduler_params=scheduler_params,
+        output_dir=output_dir
     )
 
-    plt.show()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
     return avg_loss, avg_acc, std_dev_loss, std_dev_acc
 
 def robustness_train_gaps(model_class, optimizer_class=config.OPTIMIZER, optimizer_params=config.OPTIMIZER_PARAMS, 
                           loss_fn_class=config.LOSS_FN, scheduler_class=config.SCHEDULER, 
                           scheduler_params=config.SCHEDULER_PARAMS, train_seeds=SEEDS[:3],
-                          noise=config.NOISE_AWARE):
+                          noise=config.NOISE_AWARE, output_dir=None, show_plot=False):
     """
     Tests the robustness of the training procedure across different temporal gaps.
 
@@ -229,6 +237,8 @@ def robustness_train_gaps(model_class, optimizer_class=config.OPTIMIZER, optimiz
         scheduler_params (dict): Parameters passed to the scheduler constructor.
         train_seeds (list): Seeds used for multi-run training per gap (default: first 3 seeds).
         noise (bool): If True, trains with multi-condition mixture noise; clean otherwise.
+        output_dir (str, optional): Target directory to save artifacts. If None, uses default timestamped path.
+        show_plot (bool, optional): If True, opens interactive matplotlib window; closes figures otherwise.
 
     Returns:
         tuple:
@@ -366,15 +376,21 @@ def robustness_train_gaps(model_class, optimizer_class=config.OPTIMIZER, optimiz
         optimizer_params=optimizer_params,
         loss_fn_class=loss_fn_class,
         scheduler_class=scheduler_class,
-        scheduler_params=scheduler_params
+        scheduler_params=scheduler_params,
+        output_dir=output_dir
     )
 
-    plt.show()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
+        if fig_gap is not None:
+            plt.close(fig_gap)
     return avg_loss, avg_acc, std_dev_loss, std_dev_acc
 
 # different test conditions
 
-def robustness_test_gaps(model, loss_fn_class=config.LOSS_FN, seed=config.SEED, noise=config.NOISE_AWARE):
+def robustness_test_gaps(model, loss_fn_class=config.LOSS_FN, seed=config.SEED, noise=config.NOISE_AWARE, output_dir=None, show_plot=False):
     """
     Tests the robustness of the test procedure across different temporal gaps.
 
@@ -394,6 +410,8 @@ def robustness_test_gaps(model, loss_fn_class=config.LOSS_FN, seed=config.SEED, 
         loss_fn_class (type): Loss function class.
         seed (int): Seed used to control model initialization and training stochasticity.
         noise (bool): If True, tests with multi-condition mixture noise; clean otherwise.
+        output_dir (str, optional): Target directory to save artifacts. If None, uses default timestamped path.
+        show_plot (bool, optional): If True, opens interactive matplotlib window; closes figures otherwise.
 
     Returns:
         tuple:
@@ -516,12 +534,18 @@ def robustness_test_gaps(model, loss_fn_class=config.LOSS_FN, seed=config.SEED, 
         tested_parameter_name="gap",
         tested_parameter_values=GAPS_TEST,
         loss_fn_class=loss_fn_class,
+        output_dir=output_dir
     )
 
-    plt.show()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
+        if fig_gap is not None:
+            plt.close(fig_gap)
     return avg_loss, avg_acc, std_dev_loss, std_dev_acc
 
-def robustness_test_noise(model, loss_fn_class=config.LOSS_FN, gap=config.GAP, seed=config.SEED):
+def robustness_test_noise(model, loss_fn_class=config.LOSS_FN, gap=config.GAP, seed=config.SEED, output_dir=None, show_plot=False):
     """
     Evaluates model robustness against disturbance spikes injected into the temporal GAP.
 
@@ -534,6 +558,8 @@ def robustness_test_noise(model, loss_fn_class=config.LOSS_FN, gap=config.GAP, s
         loss_fn_class (type): Criterion class used for loss computation.
         seed (int): Base seed for deterministic test set generation.
         gap (int): Temporal duration of the GAP between input A and input B.
+        output_dir (str, optional): Target directory to save artifacts. If None, uses default timestamped path.
+        show_plot (bool, optional): If True, opens interactive matplotlib window; closes figures otherwise.
 
     Returns:
         tuple:
@@ -678,12 +704,18 @@ def robustness_test_noise(model, loss_fn_class=config.LOSS_FN, gap=config.GAP, s
         tested_parameter_name="noise_spikes",
         tested_parameter_values=spike_counts,
         loss_fn_class=loss_fn_class,
+        output_dir=output_dir
     )
 
-    plt.show()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
+        if fig_noise is not None:
+            plt.close(fig_noise)
     return avg_loss, avg_acc, std_dev_loss, std_dev_acc
 
-def robustness_test_probabilities(model, loss_fn_class=config.LOSS_FN, gap=config.GAP, seed=config.SEED):
+def robustness_test_probabilities(model, loss_fn_class=config.LOSS_FN, gap=config.GAP, seed=config.SEED, output_dir=None, show_plot=False):
     """
     Tests the theoretical resilience of a pre-trained frozen model against variations
     in spike generation probabilities (prob_0 for bit 0, prob_1 for bit 1).
@@ -696,6 +728,8 @@ def robustness_test_probabilities(model, loss_fn_class=config.LOSS_FN, gap=confi
         loss_fn_class (type): Loss function class.
         gap (int): Temporal gap between input tokens.
         seed (int): Base seed for dataset generation stochasticity.
+        output_dir (str, optional): Target directory to save artifacts. If None, uses default timestamped path.
+        show_plot (bool, optional): If True, opens interactive matplotlib window; closes figures otherwise.
 
     Returns:
         tuple:
@@ -833,12 +867,16 @@ def robustness_test_probabilities(model, loss_fn_class=config.LOSS_FN, gap=confi
         tested_parameter_name="probabilities",
         tested_parameter_values={"prob_0": PROB_0, "prob_1": PROB_1},
         loss_fn_class=loss_fn_class,
+        output_dir=output_dir
     )
 
-    plt.show()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
     return avg_loss, avg_acc, std_dev_loss, std_dev_acc
 
-def robustness_test_gap_noise(model, loss_fn_class=config.LOSS_FN, seed=config.SEED):
+def robustness_test_gap_noise(model, loss_fn_class=config.LOSS_FN, seed=config.SEED, output_dir=None, show_plot=False):
     """
     Tests the theoretical resilience of a pre-trained frozen model across simultaneous
     variations in temporal gap duration and disturbance noise spike count.
@@ -851,6 +889,8 @@ def robustness_test_gap_noise(model, loss_fn_class=config.LOSS_FN, seed=config.S
         model (torch.nn.Module): Pre-trained model to evaluate.
         loss_fn_class (type): Loss function class.
         seed (int): Base seed for dataset generation stochasticity.
+        output_dir (str, optional): Target directory to save artifacts. If None, uses default timestamped path.
+        show_plot (bool, optional): If True, opens interactive matplotlib window; closes figures otherwise.
 
     Returns:
         tuple:
@@ -1006,9 +1046,13 @@ def robustness_test_gap_noise(model, loss_fn_class=config.LOSS_FN, seed=config.S
         tested_parameter_name="gap_vs_noise",
         tested_parameter_values={"gaps": GAP_NOISE_GAPS, "noise_counts": GAP_NOISE_COUNTS},
         loss_fn_class=loss_fn_class,
+        output_dir=output_dir
     )
 
-    plt.show()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
     return avg_loss, avg_acc, std_dev_loss, std_dev_acc
 
 # train and test conditions
@@ -1017,7 +1061,7 @@ def robustness_train_test_gaps(model_class, train_gaps=GAPS_TRAIN, test_gaps=GAP
                                optimizer_class=config.OPTIMIZER, optimizer_params=config.OPTIMIZER_PARAMS,
                                loss_fn_class=config.LOSS_FN, scheduler_class=config.SCHEDULER,
                                scheduler_params=config.SCHEDULER_PARAMS, seed=config.SEED,
-                               train_noise=True, test_noise=False):
+                               train_noise=True, test_noise=False, output_dir=None, show_plot=False):
     """
     Evaluates cross-gap transfer and temporal memory persistence by training independent models
     across varying train gap lengths (optionally noise-aware) and benchmarking each frozen model
@@ -1041,6 +1085,8 @@ def robustness_train_test_gaps(model_class, train_gaps=GAPS_TRAIN, test_gaps=GAP
         seed (int): Deterministic RNG seed for model initialization and PRNG baseline.
         train_noise (bool): If True, trains with multi-condition mixture noise; clean otherwise.
         test_noise (bool): If True, tests with multi-condition mixture noise; clean otherwise.
+        output_dir (str, optional): Target directory to save artifacts. If None, uses default timestamped path.
+        show_plot (bool, optional): If True, opens interactive matplotlib window; closes figures otherwise.
 
     Returns:
         tuple:
@@ -1155,10 +1201,16 @@ def robustness_train_test_gaps(model_class, train_gaps=GAPS_TRAIN, test_gaps=GAP
         optimizer_params=optimizer_params,
         loss_fn_class=loss_fn_class,
         scheduler_class=scheduler_class,
-        scheduler_params=scheduler_params
+        scheduler_params=scheduler_params,
+        output_dir=output_dir
     )
 
-    plt.show()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig_curves)
+        if fig_map is not None:
+            plt.close(fig_map)
     return avg_loss, avg_acc, std_dev_loss, std_dev_acc
 
 # saving functions
@@ -1180,11 +1232,12 @@ def save_robustness_results(
     optimizer_params=config.OPTIMIZER_PARAMS,
     loss_fn_class=config.LOSS_FN,
     scheduler_class=config.SCHEDULER,
-    scheduler_params=config.SCHEDULER_PARAMS
+    scheduler_params=config.SCHEDULER_PARAMS,
+    output_dir=None
 ):
     """
-    Stores the results and configuration of a robustness test in a
-    timestamped archive directory.
+    Stores the results and configuration of a robustness test in an
+    archive directory.
 
     Args:
         test_name (str): Name of the robustness test.
@@ -1204,6 +1257,7 @@ def save_robustness_results(
         loss_fn_class (type): Loss function class.
         scheduler_class (type): Scheduler class.
         scheduler_params (dict): Scheduler parameters.
+        output_dir (str | None): Directory where results are archived.
 
     Returns:
         str: Path of the directory where results have been stored.
@@ -1211,11 +1265,15 @@ def save_robustness_results(
 
     # create directory
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    archive_dir = os.path.join(
-        "robustness_results",
-        test_name,
-        timestamp
-    )
+    if output_dir is not None:
+        archive_dir = output_dir
+    else:
+        archive_dir = os.path.join(
+            "robustness",
+            "results",
+            test_name,
+            timestamp
+        )
     os.makedirs(archive_dir, exist_ok=True)
 
     # metadata we want to save
@@ -1223,20 +1281,20 @@ def save_robustness_results(
         "test_name": test_name,
         "date": timestamp,
 
-        "model": model_class.__name__,
+        "model": model_class.__name__ if hasattr(model_class, "__name__") else str(model_class),
         "device": str(config.DEVICE),
 
         "epochs": config.EPOCHS,
         "hidden_layer": config.HIDDEN_LAYER,
         "beta": config.BETA,
 
-        "optimizer": optimizer_class.__name__,
+        "optimizer": optimizer_class.__name__ if hasattr(optimizer_class, "__name__") else str(optimizer_class),
         "optimizer_params": optimizer_params,
 
-        "scheduler": scheduler_class.__name__,
+        "scheduler": scheduler_class.__name__ if hasattr(scheduler_class, "__name__") else str(scheduler_class),
         "scheduler_params": scheduler_params,
 
-        "loss_fn": loss_fn_class.__name__,
+        "loss_fn": loss_fn_class.__name__ if hasattr(loss_fn_class, "__name__") else str(loss_fn_class),
 
         "initialization": "fluctuation_driven",
         "fluct_xi": config.FLUCT_XI,
@@ -1317,46 +1375,158 @@ def save_robustness_results(
     return archive_dir
 
 
+## --- CONFIG & MODEL LOADING HELPERS ---
+
+def load_robustness_config(config_name_or_path):
+    """
+    Loads robustness study configuration JSON from robustness/inputs/ or custom path.
+
+    Args:
+        config_name_or_path (str): File name (with or without .json) located in
+            'robustness/inputs/' or an explicit filesystem path.
+
+    Returns:
+        dict: Parsed study configuration dictionary containing study name, models list,
+            and active test execution flags.
+
+    Raises:
+        FileNotFoundError: If the specified config file does not exist in the filesystem.
+    """
+    if not os.path.exists(config_name_or_path):                               # check if direct path exists
+        candidate = os.path.join("robustness", "inputs", config_name_or_path) # search in robustness/inputs/
+        if os.path.exists(candidate):
+            config_name_or_path = candidate
+        elif not config_name_or_path.endswith(".json"):                       # check with .json suffix
+            candidate = os.path.join("robustness", "inputs", f"{config_name_or_path}.json")
+            if os.path.exists(candidate):
+                config_name_or_path = candidate
+    if not os.path.exists(config_name_or_path):                               # verify resolved candidate path
+        raise FileNotFoundError(f"Robustness config not found: {config_name_or_path}")
+    with open(config_name_or_path, "r") as file:                              # parse configuration file
+        return json.load(file)
+
+def load_model_from_config(model_cfg):
+    """
+    Instantiates and loads model from a checkpoint (.pt or folder/pth) specified in model_cfg.
+
+    Inspects checkpoint metadata for architectural hyperparameters (hidden_layer, beta,
+    learn_beta, reset_mechanism). Falls back to model_cfg values or default config settings.
+
+    Args:
+        model_cfg (dict): Model configuration dictionary containing checkpoint path
+            and optional architecture parameters.
+
+    Returns:
+        torch.nn.Module: Loaded and evaluated XORSNN model on config.DEVICE.
+    """
+    ckpt_path = model_cfg.get("checkpoint_path", "")                          # target checkpoint path
+    hidden = model_cfg.get("hidden_layer", config.HIDDEN_LAYER)               # hidden layer dimension
+    beta = model_cfg.get("beta", config.BETA)                                 # membrane decay factor
+    learn_beta = model_cfg.get("learn_beta", False)                           # trainable beta flag
+    reset_mechanism = model_cfg.get("reset_mechanism", "zero")                # neuron reset mechanism
+
+    # Resolve folder format from models/
+    if os.path.isdir(ckpt_path):                                              # folder checkpoint format
+        folder_name = os.path.basename(ckpt_path.rstrip("/\\"))
+        pth_path = os.path.join(ckpt_path, f"{folder_name}.pth")
+        if os.path.exists(pth_path):
+            ckpt_path = pth_path
+
+    if os.path.isfile(ckpt_path):                                             # load existing checkpoint
+        raw = torch.load(ckpt_path, map_location=config.DEVICE)
+        if isinstance(raw, dict) and "model_state_dict" in raw:               # Optuna / HPO checkpoint structure
+            params = raw.get("params", {})
+            hidden = params.get("hidden_layer", hidden)
+            beta = params.get("beta", beta)
+            learn_beta = params.get("learn_beta", learn_beta)
+            reset_mechanism = params.get("reset_mechanism", reset_mechanism)
+            state_dict = raw["model_state_dict"]
+        elif isinstance(raw, dict) and any(k.startswith("net.") for k in raw.keys()):
+            state_dict = raw                                                  # raw state dict format
+        else:
+            state_dict = raw
+
+        model = classes.XORSNN(                                               # instantiate matching network
+            hidden_layer=int(hidden),
+            beta=float(beta) if not isinstance(beta, torch.Tensor) else beta,
+            learn_beta=bool(learn_beta),
+            reset_mechanism=str(reset_mechanism)
+        ).to(config.DEVICE)
+        model.load_state_dict(state_dict)                                     # restore synaptic weights
+        model.eval()                                                          # freeze for inference
+        beta_str = f"{beta:.4f}" if isinstance(beta, float) else "[heterogeneous]"
+        print(f"Model loaded: {ckpt_path} (hidden={hidden}, beta={beta_str}, learn_beta={learn_beta}, reset={reset_mechanism})")
+        return model
+    else:
+        print(f"Warning: Checkpoint '{ckpt_path}' not found. Falling back to functions.load_model().")
+        return functions.load_model(hidden=hidden, beta=beta)                 # fallback instantiation
+
+
 ## --- MAIN CODE ---
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Config-driven SNN Robustness Evaluation")
+    parser.add_argument("--config", type=str, default="test_4_upper_bound.json",
+                        help="Robustness config JSON file in robustness/inputs/ or custom path")
+    parser.add_argument("--show-plots", action="store_true", default=False,
+                        help="Display GUI plots with plt.show() during evaluation")
+    args = parser.parse_args()
 
-    # # SEED robustness test senza disturbi
-    # train_dataset, val_dataset = functions.generate_train_validation_dataset()
-    # train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
-    # avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_seeds(classes.XORSNN, train_loader, val_loader)
+    cfg = load_robustness_config(args.config)                                 # parse study configuration
+    study_name = cfg.get("study_name", "robustness_study")                    # study directory identifier
+    models_list = cfg.get("models", [])                                       # target models to benchmark
+    tests_cfg = cfg.get("tests", {})                                          # boolean test selection flags
+    show_plots = args.show_plots                                              # interactive display toggle
 
-    # SEED robustness train test con disturbi:
-    # train_dataset, val_dataset = functions.generate_train_validation_dataset(noise=True)
-    # train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
-    # avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_seeds(classes.XORSNN, train_loader, val_loader)
+    print(f"\n=======================================================")
+    print(f"Starting Robustness Suite: {study_name}")
+    print(f"Description: {cfg.get('description', '')}")
+    print(f"Total models to evaluate: {len(models_list)}")
+    print(f"=======================================================\n")
 
-    # # GAP robustness train test senza disturbi
-    # avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_gaps(classes.XORSNN)
+    for i, model_cfg in enumerate(models_list):
+        model_name = model_cfg.get("name", f"model_{i}")
+        print(f"\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+        print(f">>> Evaluating Model [{i+1}/{len(models_list)}]: {model_name}")
+        print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n")
 
-    # GAP robustness train test con disturbi:
-    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_gaps(classes.XORSNN, noise=True)
+        model = load_model_from_config(model_cfg)                             # restore model checkpoint
+        model_dir = os.path.join("robustness", "results", study_name, model_name)
+        os.makedirs(model_dir, exist_ok=True)                                 # create per-model output directory
 
-    # # GAP robustness test 
-    # model = functions.load_model()
-    # avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_test_gaps(model)
+        if tests_cfg.get("seeds_train", False):
+            print(f"\n--- Running Seeds Training Robustness for {model_name} ---")
+            train_dataset, val_dataset = functions.generate_train_validation_dataset()
+            train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
+            robustness_train_seeds(classes.XORSNN, train_loader, val_loader, output_dir=os.path.join(model_dir, "different_seeds_train"), show_plot=show_plots)
 
-    # GAP robustness test a modello congelato con disturbi:
-    model = functions.load_model()
-    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_test_gaps(model, noise=True)
+        if tests_cfg.get("gaps_train", False):
+            print(f"\n--- Running Gaps Training Robustness for {model_name} ---")
+            robustness_train_gaps(classes.XORSNN, noise=False, output_dir=os.path.join(model_dir, "different_gaps_train"), show_plot=show_plots)
 
-    # # Noise robustness test 
-    model = functions.load_model()
-    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_test_noise(model)
+        if tests_cfg.get("gaps_test_clean", False):
+            print(f"\n--- Running Frozen Gaps Test (Clean) for {model_name} ---")
+            robustness_test_gaps(model, noise=False, output_dir=os.path.join(model_dir, "different_gaps_test_clean"), show_plot=show_plots)
 
-    # 0-1 emission probabilities test
-    model = functions.load_model()
-    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_test_probabilities(model)
+        if tests_cfg.get("gaps_test_noise", False):
+            print(f"\n--- Running Frozen Gaps Test (With Noise) for {model_name} ---")
+            robustness_test_gaps(model, noise=True, output_dir=os.path.join(model_dir, "different_gaps_test_noise"), show_plot=show_plots)
 
-    # GAP vs Noise 3D robustness test
-    model = functions.load_model()
-    avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_test_gap_noise(model)
+        if tests_cfg.get("noise_test", False):
+            print(f"\n--- Running Noise Channel Sensitivity Test for {model_name} ---")
+            robustness_test_noise(model, output_dir=os.path.join(model_dir, "different_noise_test"), show_plot=show_plots)
 
-    # Different gaps Train and test at the same time to find the best model 
-    # avg_loss, avg_acc, std_dev_loss, std_dev_acc = robustness_train_test_gaps(classes.XORSNN)
+        if tests_cfg.get("probabilities_test", False):
+            print(f"\n--- Running Firing Probabilities Sensitivity Test for {model_name} ---")
+            robustness_test_probabilities(model, output_dir=os.path.join(model_dir, "different_probabilities_test"), show_plot=show_plots)
+
+        if tests_cfg.get("gap_noise_3d_test", False):
+            print(f"\n--- Running 3D Gap vs Noise Test for {model_name} ---")
+            robustness_test_gap_noise(model, output_dir=os.path.join(model_dir, "different_gap_noise_test"), show_plot=show_plots)
+
+    print(f"\n=======================================================")
+    print(f"Robustness Suite '{study_name}' Completed Successfully!")
+    print(f"Results archived under: robustness/results/{study_name}/")
+    print(f"=======================================================\n")
 

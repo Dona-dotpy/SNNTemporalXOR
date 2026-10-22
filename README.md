@@ -139,7 +139,17 @@ SNNTemporalXOR/
 │       ├── test_3_robust_pareto/      # Multi-Objective Pareto study (DB, curriculum checkpoints)
 │       └── test_4_upper_bound/        # Ideal Upper Bound study (heterogeneous beta, soft reset, mixture)
 │
-├── robustness_results/                # Test outputs, JSON summaries and figures
+├── robustness/                        # Config-driven model robustness & generalization suite
+│   ├── inputs/                        # Test configuration JSON files specifying models & regimes
+│   │   ├── test_1_broad_100neurons.json
+│   │   ├── test_2_nominal_50neurons.json
+│   │   ├── test_3_robust_pareto.json
+│   │   └── test_4_upper_bound.json    # Evaluates all 10 Pareto-optimal models from HPO 4
+│   └── results/                       # Archived outputs, JSON summaries, and curves per study/model
+│       ├── test_1_broad_100neurons/
+│       ├── test_2_nominal_50neurons/
+│       ├── test_3_robust_pareto/
+│       └── test_4_upper_bound/        # Multi-model evaluation results
 │
 ├── scripts/
 │   ├── config.py                      # Global parameters (Single Source of Truth)
@@ -160,7 +170,7 @@ SNNTemporalXOR/
 | [`scripts/classes.py`](scripts/classes.py) | **Architectural & Data Classes**. Implements `XORSNN` (single hidden layer LIF network with recurrent membrane storage) and `TemporalXORDataset` (deterministic PyTorch dataset generation for rate-coded temporal XOR). |
 | [`scripts/functions.py`](scripts/functions.py) | **Core Utility Library**. Handles rate-coded input generation with flexible noise injection, training/evaluation loops, physics-grounded fluctuation-driven weight initialization, dynamic model persistence (`models/`), and ASCII raster plots. |
 | [`scripts/main.py`](scripts/main.py) | **Interactive Entrypoint**. Displays active hardware, verifies existing checkpoints to avoid duplicate training, runs forward training or immediate inference, and allows interactive terminal inspection of spike dynamics. |
-| [`scripts/robustness.py`](scripts/robustness.py) | **Perturbation & Generalization Suite**. Benchmarks theoretical model stability against external channel disturbances: seed reproducibility, gap duration scaling (training & frozen model), and multi-channel gap noise (Channel A, Channel B, Mixed) with automated CSV/PNG archiving. |
+| [`scripts/robustness.py`](scripts/robustness.py) | **Config-Driven Perturbation & Generalization Suite**. Benchmarks model stability against external disturbances via `--config <name>.json`: gap duration scaling (training & frozen models), multi-channel gap noise (A, B, Mixed), firing probability sensitivity grids, and 3D gap-noise interactions with automated CSV/PNG archiving. |
 | [`scripts/optimize_hyperparameters.py`](scripts/optimize_hyperparameters.py) | **Bayesian Optimization Engine**. Manages automated distributed hyperparameter search via Optuna (SQLite database) and real-time Weights & Biases (W&B) logging, featuring resilient trial-level checkpointing. |
 
 ---

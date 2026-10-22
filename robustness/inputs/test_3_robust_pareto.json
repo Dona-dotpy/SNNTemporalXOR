@@ -1,0 +1,24 @@
+{
+    "study_name": "test_3_robust_pareto",
+    "description": "Historical robustness suite for 50-neuron Curriculum Learning model (Trial 66)",
+    "models": [
+        {
+            "name": "trial_66",
+            "checkpoint_path": "models/E1000-LR0.004978658660260544-H50-B0.979350180923352-S1542-Clean",
+            "hidden_layer": 50,
+            "beta": 0.97935,
+            "learn_beta": false,
+            "reset_mechanism": "zero"
+        }
+    ],
+    "tests": {
+        "seeds_train": true,
+        "gaps_train": true,
+        "gaps_test_clean": false,
+        "gaps_test_noise": true,
+        "noise_test": true,
+        "probabilities_test": true,
+        "gap_noise_3d_test": true,
+        "gaps_train_test": true
+    }
+}

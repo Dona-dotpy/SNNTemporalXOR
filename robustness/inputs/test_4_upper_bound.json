@@ -1,0 +1,85 @@
+{
+    "study_name": "test_4_upper_bound",
+    "description": "Comprehensive robustness evaluation across all 10 Pareto-optimal models from HPO 4",
+    "models": [
+        {
+            "name": "trial_184_max_robust_99.9",
+            "checkpoint_path": "optimization/studies/test_4_upper_bound/best_models/trial_184/best_model.pt",
+            "hidden_layer": 50,
+            "learn_beta": true,
+            "reset_mechanism": "subtract"
+        },
+        {
+            "name": "trial_240_efficient_99.8_14spikes",
+            "checkpoint_path": "optimization/studies/test_4_upper_bound/best_models/trial_240/best_model.pt",
+            "hidden_layer": 50,
+            "learn_beta": true,
+            "reset_mechanism": "subtract"
+        },
+        {
+            "name": "trial_141_robust_99.6",
+            "checkpoint_path": "optimization/studies/test_4_upper_bound/best_models/trial_141/best_model.pt",
+            "hidden_layer": 50,
+            "learn_beta": true,
+            "reset_mechanism": "subtract"
+        },
+        {
+            "name": "trial_191_balanced_99.5_lowloss",
+            "checkpoint_path": "optimization/studies/test_4_upper_bound/best_models/trial_191/best_model.pt",
+            "hidden_layer": 50,
+            "learn_beta": true,
+            "reset_mechanism": "subtract"
+        },
+        {
+            "name": "trial_168_robust_99.1",
+            "checkpoint_path": "optimization/studies/test_4_upper_bound/best_models/trial_168/best_model.pt",
+            "hidden_layer": 50,
+            "learn_beta": true,
+            "reset_mechanism": "subtract"
+        },
+        {
+            "name": "trial_230_balanced_99.0",
+            "checkpoint_path": "optimization/studies/test_4_upper_bound/best_models/trial_230/best_model.pt",
+            "hidden_layer": 50,
+            "learn_beta": true,
+            "reset_mechanism": "subtract"
+        },
+        {
+            "name": "trial_239_fast_97.5",
+            "checkpoint_path": "optimization/studies/test_4_upper_bound/best_models/trial_239/best_model.pt",
+            "hidden_layer": 50,
+            "learn_beta": true,
+            "reset_mechanism": "subtract"
+        },
+        {
+            "name": "trial_318_robust_97.4",
+            "checkpoint_path": "optimization/studies/test_4_upper_bound/best_models/trial_318/best_model.pt",
+            "hidden_layer": 50,
+            "learn_beta": true,
+            "reset_mechanism": "subtract"
+        },
+        {
+            "name": "trial_204_fast_97.3",
+            "checkpoint_path": "optimization/studies/test_4_upper_bound/best_models/trial_204/best_model.pt",
+            "hidden_layer": 50,
+            "learn_beta": true,
+            "reset_mechanism": "subtract"
+        },
+        {
+            "name": "trial_228_min_loss_0.00054",
+            "checkpoint_path": "optimization/studies/test_4_upper_bound/best_models/trial_228/best_model.pt",
+            "hidden_layer": 50,
+            "learn_beta": true,
+            "reset_mechanism": "subtract"
+        }
+    ],
+    "tests": {
+        "seeds_train": false,
+        "gaps_train": false,
+        "gaps_test_clean": false,
+        "gaps_test_noise": true,
+        "noise_test": true,
+        "probabilities_test": true,
+        "gap_noise_3d_test": true
+    }
+}

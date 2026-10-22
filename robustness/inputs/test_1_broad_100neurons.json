@@ -1,0 +1,23 @@
+{
+    "study_name": "test_1_broad_100neurons",
+    "description": "Historical robustness suite for 100-neuron nominal baseline (Trial 713)",
+    "models": [
+        {
+            "name": "trial_713",
+            "checkpoint_path": "models/E1000-LR0.0062979175559891715-H100-B0.95-S1542-Clean",
+            "hidden_layer": 100,
+            "beta": 0.95,
+            "learn_beta": false,
+            "reset_mechanism": "zero"
+        }
+    ],
+    "tests": {
+        "seeds_train": true,
+        "gaps_train": true,
+        "gaps_test_clean": true,
+        "gaps_test_noise": false,
+        "noise_test": true,
+        "probabilities_test": true,
+        "gap_noise_3d_test": true
+    }
+}
