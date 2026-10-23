@@ -104,10 +104,12 @@ python scripts/main.py
 > `main.py` detects whether an optimized model matching `config.py` already exists in `models/`. Trained models are unequivocally tagged as `<model_name>-Clean` or `<model_name>-Noise` with matching `"noise_aware"` JSON metadata.
 
 ### 3. Robustness Experiments
-Execute seed invariance, gap scaling, and noise sensitivity experiments:
+Execute config-driven perturbation suites (temporal gaps, noise injection, firing probabilities, 3D interaction surfaces):
 ```bash
-python scripts/robustness.py
+python scripts/robustness.py --config test_2_nominal_50neurons.json
 ```
+> [!NOTE]
+> All robustness tests automatically track 10 accuracy metrics (overall and disaggregated across `00`, `01`, `10`, `11` for both clean nominal baseline and robust perturbed regimes). Results are archived under timestamped session folders.
 
 ### 4. Hyperparameter Search
 Launch a config-driven Optuna search sweep (default: `test_2_nominal_50neurons.json`):
@@ -145,11 +147,11 @@ SNNTemporalXOR/
 │   │   ├── test_2_nominal_50neurons.json
 │   │   ├── test_3_robust_pareto.json
 │   │   └── test_4_upper_bound.json    # Evaluates all 10 Pareto-optimal models from HPO 4
-│   └── results/                       # Archived outputs, JSON summaries, and curves per study/model
-│       ├── test_1_broad_100neurons/
-│       ├── test_2_nominal_50neurons/
-│       ├── test_3_robust_pareto/
-│       └── test_4_upper_bound/        # Multi-model evaluation results
+│   └── results/                       # Automated session-stamped evaluation artifacts (CSVs, PNGs, PTs)
+│       ├── test_1_broad_100neurons/   # Single-model: <session_timestamp>/<test_type>/
+│       ├── test_2_nominal_50neurons/  # Single-model: <session_timestamp>/<test_type>/
+│       ├── test_3_robust_pareto/      # Pareto study: trial_66/<session_timestamp>/<test_type>/
+│       └── test_4_upper_bound/        # Pareto frontier: <trial_name>/<session_timestamp>/<test_type>/
 │
 ├── scripts/
 │   ├── config.py                      # Global parameters (Single Source of Truth)
@@ -170,7 +172,7 @@ SNNTemporalXOR/
 | [`scripts/classes.py`](scripts/classes.py) | **Architectural & Data Classes**. Implements `XORSNN` (single hidden layer LIF network with recurrent membrane storage) and `TemporalXORDataset` (deterministic PyTorch dataset generation for rate-coded temporal XOR). |
 | [`scripts/functions.py`](scripts/functions.py) | **Core Utility Library**. Handles rate-coded input generation with flexible noise injection, training/evaluation loops, physics-grounded fluctuation-driven weight initialization, dynamic model persistence (`models/`), and ASCII raster plots. |
 | [`scripts/main.py`](scripts/main.py) | **Interactive Entrypoint**. Displays active hardware, verifies existing checkpoints to avoid duplicate training, runs forward training or immediate inference, and allows interactive terminal inspection of spike dynamics. |
-| [`scripts/robustness.py`](scripts/robustness.py) | **Config-Driven Perturbation & Generalization Suite**. Benchmarks model stability against external disturbances via `--config <name>.json`: gap duration scaling (training & frozen models), multi-channel gap noise (A, B, Mixed), firing probability sensitivity grids, and 3D gap-noise interactions with automated CSV/PNG archiving. |
+| [`scripts/robustness.py`](scripts/robustness.py) | **Config-Driven Perturbation & Generalization Suite**. Benchmarks model stability against external disturbances via `--config <name>.json`: gap duration scaling (training & frozen models), multi-channel gap noise (A, B, Mixed), firing probability sensitivity grids, and 3D gap-noise interaction surfaces. Logs **10 accuracy metrics** (overall and disaggregated across `00`, `01`, `10`, `11` for both clean nominal baseline and robust perturbed conditions) into session-timestamped directories. |
 | [`scripts/optimize_hyperparameters.py`](scripts/optimize_hyperparameters.py) | **Bayesian Optimization Engine**. Manages automated distributed hyperparameter search via Optuna (SQLite database) and real-time Weights & Biases (W&B) logging, featuring resilient trial-level checkpointing. |
 
 ---

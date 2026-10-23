@@ -1374,7 +1374,7 @@ def save_robustness_results(
     # create directory
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     if output_dir is not None:
-        archive_dir = os.path.join(output_dir, timestamp)                      # ensure timestamp subfolder
+        archive_dir = output_dir                                               # direct archive target (Option B)
     else:
         archive_dir = os.path.join(
             "robustness",
@@ -1600,38 +1600,43 @@ if __name__ == "__main__":
         print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n")
 
         model = load_model_from_config(model_cfg)                             # restore model checkpoint
-        model_dir = os.path.join("robustness", "results", study_name, model_name)
-        os.makedirs(model_dir, exist_ok=True)                                 # create per-model output directory
+        session_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        is_pareto = ("pareto" in study_name.lower()) or (len(models_list) > 1) or cfg.get("is_pareto", False)
+        if is_pareto:
+            session_dir = os.path.join("robustness", "results", study_name, model_name, session_timestamp)
+        else:
+            session_dir = os.path.join("robustness", "results", study_name, session_timestamp)
+        os.makedirs(session_dir, exist_ok=True)                               # create timestamped session directory
 
         if tests_cfg.get("seeds_train", False):
             print(f"\n--- Running Seeds Training Robustness for {model_name} ---")
             train_dataset, val_dataset = functions.generate_train_validation_dataset()
             train_loader, val_loader = functions.generate_train_validation_dataloader(train_dataset, val_dataset)
-            robustness_train_seeds(classes.XORSNN, train_loader, val_loader, output_dir=os.path.join(model_dir, "different_seeds_train"), show_plot=show_plots)
+            robustness_train_seeds(classes.XORSNN, train_loader, val_loader, output_dir=os.path.join(session_dir, "different_seeds_train"), show_plot=show_plots)
 
         if tests_cfg.get("gaps_train", False):
             print(f"\n--- Running Gaps Training Robustness for {model_name} ---")
-            robustness_train_gaps(classes.XORSNN, noise=False, output_dir=os.path.join(model_dir, "different_gaps_train"), show_plot=show_plots)
+            robustness_train_gaps(classes.XORSNN, noise=False, output_dir=os.path.join(session_dir, "different_gaps_train"), show_plot=show_plots)
 
         if tests_cfg.get("gaps_test_clean", False):
             print(f"\n--- Running Frozen Gaps Test (Clean) for {model_name} ---")
-            robustness_test_gaps(model, noise=False, output_dir=os.path.join(model_dir, "different_gaps_test_clean"), show_plot=show_plots)
+            robustness_test_gaps(model, noise=False, output_dir=os.path.join(session_dir, "different_gaps_test_clean"), show_plot=show_plots)
 
         if tests_cfg.get("gaps_test_noise", False):
             print(f"\n--- Running Frozen Gaps Test (With Noise) for {model_name} ---")
-            robustness_test_gaps(model, noise=True, output_dir=os.path.join(model_dir, "different_gaps_test_noise"), show_plot=show_plots)
+            robustness_test_gaps(model, noise=True, output_dir=os.path.join(session_dir, "different_gaps_test_noise"), show_plot=show_plots)
 
         if tests_cfg.get("noise_test", False):
             print(f"\n--- Running Noise Channel Sensitivity Test for {model_name} ---")
-            robustness_test_noise(model, output_dir=os.path.join(model_dir, "different_noise_test"), show_plot=show_plots)
+            robustness_test_noise(model, output_dir=os.path.join(session_dir, "different_noise_test"), show_plot=show_plots)
 
         if tests_cfg.get("probabilities_test", False):
             print(f"\n--- Running Firing Probabilities Sensitivity Test for {model_name} ---")
-            robustness_test_probabilities(model, output_dir=os.path.join(model_dir, "different_probabilities_test"), show_plot=show_plots)
+            robustness_test_probabilities(model, output_dir=os.path.join(session_dir, "different_probabilities_test"), show_plot=show_plots)
 
         if tests_cfg.get("gap_noise_3d_test", False):
             print(f"\n--- Running 3D Gap vs Noise Test for {model_name} ---")
-            robustness_test_gap_noise(model, output_dir=os.path.join(model_dir, "different_gap_noise_test"), show_plot=show_plots)
+            robustness_test_gap_noise(model, output_dir=os.path.join(session_dir, "different_gap_noise_test"), show_plot=show_plots)
 
     print(f"\n=======================================================")
     print(f"Robustness Suite '{study_name}' Completed Successfully!")
