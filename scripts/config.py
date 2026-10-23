@@ -34,8 +34,7 @@ BETA = 0.979350180923352
 
 ## --- Neural network ---
 
-# we put here the best parameters we found from a 62 hours search with the script "optimize_hyperparameters.py"
-# Optimal parameters from Test 2 (Nominal 50 neurons, Trial 82)
+# we put here the best parameters we found from 4 hyperparameter search with the script "optimize_hyperparameters.py"
 
 INPUT_LAYER, HIDDEN_LAYER, OUTPUT_LAYER = 3, 50, 2
 LOSS_FN = torch.nn.CrossEntropyLoss

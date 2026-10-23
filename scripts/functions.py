@@ -45,9 +45,6 @@ def XOR(A, B, len_sign_a=config.SIGN_A, len_sign_b=config.SIGN_B, len_sign_r=con
         label(int): result of standard XOR computation
         noise_metrics(float): normalized centre of mass of the noise spikes inside the gap [0,1]
     """
-
-    A_on, B_on = torch.zeros(len_sign_a), torch.zeros(len_sign_b)
-
     # Let's generate random permutations and take 1st 3 or 6 numbers to decide spike positions
     A_on, B_on = torch.zeros(len_sign_a), torch.zeros(len_sign_b)
     spikes_0_A, spikes_1_A = int(round(len_sign_a * prob_0)), int(round(len_sign_a * prob_1))
@@ -346,6 +343,55 @@ def evaluate(model, test_loader, loss_fn):
     avg_loss_test = total_loss / total_samples                              # sample-weighted mean loss
     acc_test = ((total_correct / total_samples) * 100).item()
     return avg_loss_test, acc_test
+
+def get_dataset_patterns(dataset):
+    """ Extracts flat pattern list from TemporalXORDataset or ConcatDataset. """
+    if hasattr(dataset, "patterns"):                                           # standard single dataset
+        return dataset.patterns
+    if isinstance(dataset, torch.utils.data.ConcatDataset):                    # mixture dataset concat
+        patterns = []
+        for ds in dataset.datasets:
+            if hasattr(ds, "patterns"):
+                patterns.extend(ds.patterns)
+            else:
+                return None
+        return patterns
+    return None
+
+def evaluate_patterns(model, test_loader, loss_fn):
+    """
+    Evaluates model returning loss, overall accuracy, and accuracy breakdown across
+    individual XOR patterns ("00", "01", "10", "11").
+    """
+    model.eval()
+    total_loss = 0.0
+    all_preds, all_labels = [], []
+    with torch.no_grad():
+        for data, label in test_loader:
+            data, label = data.to(config.DEVICE), label.to(config.DEVICE)
+            spk_out, _ = model(data)
+            total_spikes = spk_out.sum(dim=2)                                  # accumulate temporal spikes
+            loss = loss_fn(total_spikes, label)
+            pred = torch.argmax(total_spikes, dim=1)                           # winning class prediction
+            total_loss += loss.item() * label.size(0)
+            all_preds.append(pred.cpu())
+            all_labels.append(label.cpu())
+    all_preds = torch.cat(all_preds)
+    all_labels = torch.cat(all_labels)
+    total_samples = len(all_labels)
+    avg_loss = total_loss / total_samples
+    overall_acc = ((all_preds == all_labels).float().mean() * 100).item()
+    patterns = get_dataset_patterns(test_loader.dataset)                       # aligned ground truth list
+    pattern_accs = {}
+    if patterns is not None and len(patterns) == total_samples:
+        for pat in ["00", "01", "10", "11"]:
+            mask = torch.tensor([p == pat for p in patterns], dtype=torch.bool)
+            cnt = mask.sum().item()
+            acc = ((all_preds[mask] == all_labels[mask]).float().mean() * 100).item() if cnt > 0 else 0.0
+            pattern_accs[pat] = acc
+    else:
+        pattern_accs = {k: overall_acc for k in ["00", "01", "10", "11"]}
+    return avg_loss, overall_acc, pattern_accs
 
 def train_and_validate(model, train_loader, val_loader, optimizer, loss_fn, scheduler, noise=config.NOISE_AWARE):
     """

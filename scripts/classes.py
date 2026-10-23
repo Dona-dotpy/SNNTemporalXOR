@@ -37,6 +37,7 @@ class TemporalXORDataset(Dataset):
         self.num_samples = num_samples
         self.samples = []
         self.labels = []
+        self.patterns = []                                                     # input combination identifier ("00","01","10","11")
 
         # Let's fill the dataset with the number of samples we estabilished
         for _ in range(num_samples):
@@ -45,6 +46,7 @@ class TemporalXORDataset(Dataset):
                                                  noise_spikes, prob_0, prob_1)
             self.samples.append(Data)
             self.labels.append(label)
+            self.patterns.append(f"{A}{B}")                                    # preserve input token ground truth
 
     def __len__(self):
         return self.num_samples

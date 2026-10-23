@@ -426,15 +426,22 @@ def robustness_test_gaps(model, loss_fn_class=config.LOSS_FN, seed=config.SEED, 
 
     model.to(config.DEVICE)
 
+    # evaluate nominal clean baseline reference (GAP=30, noise=0)
+    nom_ds = functions.generate_test_dataset(gap=config.GAP, seed=seed, noise=False)
+    nom_loader = functions.generate_test_dataloader(nom_ds)
+    _, clean_acc, clean_pats = functions.evaluate_patterns(model, nom_loader, loss_fn_class())
+
     # let's create a dictionary to store the results of validation losses and accuracies
     results = {
         "losses": [],
         "accuracies": [],
+        "pattern_accuracies": {"00": [], "01": [], "10": [], "11": []},
     }
     
     # compute losses and accuracies
     for i, gap in enumerate(GAPS_TEST):
-        loss_hist, acc_hist= [], []
+        loss_hist, acc_hist = [], []
+        pats_hist = {"00": [], "01": [], "10": [], "11": []}
         for N in range(config.N_ROBUSTNESS_DATASET):
             # we neeed to create the dataset everytime with a different gap
             test_dataset = functions.generate_test_dataset(gap=gap, seed=seed + N, noise=noise)
@@ -443,13 +450,17 @@ def robustness_test_gaps(model, loss_fn_class=config.LOSS_FN, seed=config.SEED, 
             print(f"Gap test {i * config.N_ROBUSTNESS_DATASET + N + 1}/{len(GAPS_TEST)*config.N_ROBUSTNESS_DATASET} - gap = {gap}...")
             loss_fn = loss_fn_class()     
 
-            # single pass: frozen model on static test set is deterministic (epochs are only for training)
-            loss_test, acc_test = functions.evaluate(model, test_loader, loss_fn)
+            # evaluate model loss, accuracy and class-specific breakdown
+            loss_test, acc_test, pat_accs = functions.evaluate_patterns(model, test_loader, loss_fn)
             loss_hist.append(loss_test)
             acc_hist.append(acc_test)
+            for k in ["00", "01", "10", "11"]:
+                pats_hist[k].append(pat_accs[k])
 
         results["losses"].append(loss_hist)
         results["accuracies"].append(acc_hist)
+        for k in ["00", "01", "10", "11"]:
+            results["pattern_accuracies"][k].append(pats_hist[k])
 
     # plot the results and store them
     fig, ax = plt.subplots(1, 2, figsize = (12,4), squeeze=False)
@@ -471,11 +482,16 @@ def robustness_test_gaps(model, loss_fn_class=config.LOSS_FN, seed=config.SEED, 
     mean_losses, std_losses = [], []
     mean_accs, std_accs = [], []
     summary = []
-    for losses, accs, gap in zip(results["losses"], results["accuracies"], GAPS_TEST):
+    for idx, (losses, accs, gap) in enumerate(zip(results["losses"], results["accuracies"], GAPS_TEST)):
         m_loss = sum(losses) / len(losses)
         s_loss = torch.tensor(losses).std().item()
         m_acc = sum(accs) / len(accs)
         s_acc = torch.tensor(accs).std().item()
+
+        m_00 = sum(results["pattern_accuracies"]["00"][idx]) / len(results["pattern_accuracies"]["00"][idx])
+        m_01 = sum(results["pattern_accuracies"]["01"][idx]) / len(results["pattern_accuracies"]["01"][idx])
+        m_10 = sum(results["pattern_accuracies"]["10"][idx]) / len(results["pattern_accuracies"]["10"][idx])
+        m_11 = sum(results["pattern_accuracies"]["11"][idx]) / len(results["pattern_accuracies"]["11"][idx])
 
         mean_losses.append(m_loss)
         std_losses.append(s_loss)
@@ -486,7 +502,17 @@ def robustness_test_gaps(model, loss_fn_class=config.LOSS_FN, seed=config.SEED, 
             "gap": gap,
             "mean_test_loss": m_loss,
             "std_test_loss": s_loss,
-            "mean_test_accuracy": m_acc,
+            "clean_accuracy": clean_acc,
+            "clean_acc_00": clean_pats["00"],
+            "clean_acc_01": clean_pats["01"],
+            "clean_acc_10": clean_pats["10"],
+            "clean_acc_11": clean_pats["11"],
+            "mean_test_accuracy": m_acc,                                       # legacy alias for backward compatibility
+            "robust_accuracy": m_acc,
+            "robust_acc_00": m_00,
+            "robust_acc_01": m_01,
+            "robust_acc_10": m_10,
+            "robust_acc_11": m_11,
             "std_test_accuracy": s_acc,
             "min_test_accuracy": min(accs),                                    # worst-case dataset accuracy for this gap
             "max_test_accuracy": max(accs),                                    # best-case dataset accuracy for this gap
@@ -505,10 +531,15 @@ def robustness_test_gaps(model, loss_fn_class=config.LOSS_FN, seed=config.SEED, 
     ax_gap[0].set_xlabel("Gap")
     ax_gap[0].set_ylabel("Mean test loss")
     ax_gap[0].set_title("Mean test loss vs GAP")
-    ax_gap[1].plot(GAPS_TEST, mean_accs, marker="o")
+    ax_gap[1].plot(GAPS_TEST, mean_accs, marker="o", color="black", linewidth=2, label="Overall")
+    ax_gap[1].plot(GAPS_TEST, [r["robust_acc_00"] for r in summary], marker="s", linestyle="--", label="00", alpha=0.85)
+    ax_gap[1].plot(GAPS_TEST, [r["robust_acc_01"] for r in summary], marker="^", linestyle="--", label="01", alpha=0.85)
+    ax_gap[1].plot(GAPS_TEST, [r["robust_acc_10"] for r in summary], marker="v", linestyle="--", label="10", alpha=0.85)
+    ax_gap[1].plot(GAPS_TEST, [r["robust_acc_11"] for r in summary], marker="d", linestyle="--", label="11", alpha=0.85)
     ax_gap[1].set_xlabel("Gap")
     ax_gap[1].set_ylabel("Test accuracy (%)")
     ax_gap[1].set_title("Test accuracy vs GAP")
+    ax_gap[1].legend()
     fig_gap.suptitle("Performance across temporal gaps")
     fig_gap.tight_layout()
 
@@ -576,10 +607,16 @@ def robustness_test_noise(model, loss_fn_class=config.LOSS_FN, gap=config.GAP, s
 
     model.to(config.DEVICE)
 
+    # evaluate nominal clean baseline reference (GAP=30, noise=0)
+    nom_ds = functions.generate_test_dataset(gap=gap, noise_spikes=0, prob_0=config.PROB_0, prob_1=config.PROB_1, seed=seed)
+    nom_loader = functions.generate_test_dataloader(nom_ds)
+    _, clean_acc, clean_pats = functions.evaluate_patterns(model, nom_loader, loss_fn_class())
+
     # dictionary storing full seed histories, temporal metrics and channel labels
     results = {
         "losses": {1: [], 2: [], 3: [], 4: []},
         "accuracies": {1: [], 2: [], 3: [], 4: []},
+        "pattern_accuracies": {1: [], 2: [], 3: [], 4: []},
         "metrics": {1: [], 2: [], 3: [], 4: []},
         "channels": {1: [], 2: [], 3: [], 4: []},
     }
@@ -591,6 +628,7 @@ def robustness_test_noise(model, loss_fn_class=config.LOSS_FN, gap=config.GAP, s
     for i in range(1, 5):
         for j, spikes in enumerate(NOISE[i]):
             loss_hist, acc_hist = [], []
+            pats_hist = {"00": [], "01": [], "10": [], "11": []}
             for N in range(config.N_ROBUSTNESS_DATASET):
                 run_counter += 1
                 test_dataset = functions.generate_test_dataset(gap=gap, seed=seed + N, noise_spikes=spikes)
@@ -599,10 +637,12 @@ def robustness_test_noise(model, loss_fn_class=config.LOSS_FN, gap=config.GAP, s
                 print(f"Noise test {run_counter}/{total_runs} - {i} spikes: {spikes}...")
                 loss_fn = loss_fn_class()
 
-                # frozen model single pass evaluation
-                loss_test, acc_test = functions.evaluate(model, test_loader, loss_fn)
+                # frozen model single pass evaluation with pattern tracking
+                loss_test, acc_test, pat_accs = functions.evaluate_patterns(model, test_loader, loss_fn)
                 loss_hist.append(loss_test)
                 acc_hist.append(acc_test)
+                for k in ["00", "01", "10", "11"]:
+                    pats_hist[k].append(pat_accs[k])
 
             # determine channel assignment and mean timestep inside GAP
             channel = "A" if all(s < gap for s in spikes) else ("B" if all(s >= gap for s in spikes) else "Mixed")
@@ -610,6 +650,7 @@ def robustness_test_noise(model, loss_fn_class=config.LOSS_FN, gap=config.GAP, s
 
             results["losses"][i].append(loss_hist)           # full history across N seeds
             results["accuracies"][i].append(acc_hist)        # full history across N seeds
+            results["pattern_accuracies"][i].append(pats_hist) # pattern histories across N seeds
             results["metrics"][i].append(t_metric)           # mean timestep in GAP [0, 30]
             results["channels"][i].append(channel)          # channel label ('A', 'B', 'Mixed')
 
@@ -625,6 +666,11 @@ def robustness_test_noise(model, loss_fn_class=config.LOSS_FN, gap=config.GAP, s
         mean_a = [sum(h) / len(h) for h in results["accuracies"][i]]
         std_a  = [torch.tensor(h).std().item() for h in results["accuracies"][i]]
 
+        mean_p_00 = [sum(h["00"]) / len(h["00"]) for h in results["pattern_accuracies"][i]]
+        mean_p_01 = [sum(h["01"]) / len(h["01"]) for h in results["pattern_accuracies"][i]]
+        mean_p_10 = [sum(h["10"]) / len(h["10"]) for h in results["pattern_accuracies"][i]]
+        mean_p_11 = [sum(h["11"]) / len(h["11"]) for h in results["pattern_accuracies"][i]]
+
         # similar to append but we concatenate every number in a unique list
         all_mean_losses.extend(mean_l)
         all_mean_accs.extend(mean_a)
@@ -638,9 +684,19 @@ def robustness_test_noise(model, loss_fn_class=config.LOSS_FN, gap=config.GAP, s
                 "time_in_gap": results["metrics"][i][j],
                 "mean_test_loss": mean_l[j],
                 "std_test_loss": std_l[j],
+                "clean_accuracy": clean_acc,
+                "clean_acc_00": clean_pats["00"],
+                "clean_acc_01": clean_pats["01"],
+                "clean_acc_10": clean_pats["10"],
+                "clean_acc_11": clean_pats["11"],
                 "mean_test_accuracy": mean_a[j],
+                "robust_accuracy": mean_a[j],
+                "robust_acc_00": mean_p_00[j],
+                "robust_acc_01": mean_p_01[j],
+                "robust_acc_10": mean_p_10[j],
+                "robust_acc_11": mean_p_11[j],
                 "std_test_accuracy": std_a[j],
-                "delta_accuracy": mean_a[j] - 100.0,            # relative degradation from clean nominal baseline (100%)
+                "delta_accuracy": mean_a[j] - clean_acc,        # relative degradation from clean nominal baseline
                 "min_test_accuracy": min(results["accuracies"][i][j]),
                 "max_test_accuracy": max(results["accuracies"][i][j]),
             })
@@ -741,9 +797,15 @@ def robustness_test_probabilities(model, loss_fn_class=config.LOSS_FN, gap=confi
 
     model.to(config.DEVICE)
 
+    # evaluate nominal clean baseline reference (prob_0=0.3, prob_1=0.6)
+    nom_ds = functions.generate_test_dataset(gap=gap, prob_0=config.PROB_0, prob_1=config.PROB_1, seed=seed)
+    nom_loader = functions.generate_test_dataloader(nom_ds)
+    _, clean_acc, clean_pats = functions.evaluate_patterns(model, nom_loader, loss_fn_class())
+
     results = {
         "losses": [],
         "accuracies": [],
+        "pattern_accuracies": {"00": [], "01": [], "10": [], "11": []},
     }
 
     # 2D matrices for contour plotting: shape (len(PROB_1), len(PROB_0)) -> Y: prob_1, X: prob_0
@@ -757,6 +819,7 @@ def robustness_test_probabilities(model, loss_fn_class=config.LOSS_FN, gap=confi
     for i, prob_0 in enumerate(PROB_0):
         for j, prob_1 in enumerate(PROB_1):
             loss_hist, acc_hist = [], []
+            pats_hist = {"00": [], "01": [], "10": [], "11": []}
             for N in range(config.N_ROBUSTNESS_DATASET):
                 test_dataset = functions.generate_test_dataset(
                     gap=gap, prob_0=prob_0, prob_1=prob_1, seed=seed + N
@@ -767,17 +830,26 @@ def robustness_test_probabilities(model, loss_fn_class=config.LOSS_FN, gap=confi
                 print(f"Probability test {test_idx}/{tot_test} - Probs -> 0: {prob_0} - 1: {prob_1}")
 
                 loss_fn = loss_fn_class()
-                loss_test, acc_test = functions.evaluate(model, test_loader, loss_fn)
+                loss_test, acc_test, pat_accs = functions.evaluate_patterns(model, test_loader, loss_fn)
                 loss_hist.append(loss_test)
                 acc_hist.append(acc_test)
+                for k in ["00", "01", "10", "11"]:
+                    pats_hist[k].append(pat_accs[k])
 
             results["losses"].append(loss_hist)
             results["accuracies"].append(acc_hist)
+            for k in ["00", "01", "10", "11"]:
+                results["pattern_accuracies"][k].append(pats_hist[k])
 
             m_loss = sum(loss_hist) / len(loss_hist)
             s_loss = torch.tensor(loss_hist).std().item() if len(loss_hist) > 1 else 0.0
             m_acc = sum(acc_hist) / len(acc_hist)
             s_acc = torch.tensor(acc_hist).std().item() if len(acc_hist) > 1 else 0.0
+
+            m_00 = sum(pats_hist["00"]) / len(pats_hist["00"])
+            m_01 = sum(pats_hist["01"]) / len(pats_hist["01"])
+            m_10 = sum(pats_hist["10"]) / len(pats_hist["10"])
+            m_11 = sum(pats_hist["11"]) / len(pats_hist["11"])
 
             z_loss[j, i] = m_loss                                       # row j: prob_1 (Y), col i: prob_0 (X)
             z_acc[j, i] = m_acc
@@ -787,7 +859,17 @@ def robustness_test_probabilities(model, loss_fn_class=config.LOSS_FN, gap=confi
                 "prob_1": prob_1,
                 "mean_test_loss": m_loss,
                 "std_test_loss": s_loss,
+                "clean_accuracy": clean_acc,
+                "clean_acc_00": clean_pats["00"],
+                "clean_acc_01": clean_pats["01"],
+                "clean_acc_10": clean_pats["10"],
+                "clean_acc_11": clean_pats["11"],
                 "mean_test_accuracy": m_acc,
+                "robust_accuracy": m_acc,
+                "robust_acc_00": m_00,
+                "robust_acc_01": m_01,
+                "robust_acc_10": m_10,
+                "robust_acc_11": m_11,
                 "std_test_accuracy": s_acc,
                 "min_test_accuracy": min(acc_hist),
                 "max_test_accuracy": max(acc_hist)
@@ -902,9 +984,15 @@ def robustness_test_gap_noise(model, loss_fn_class=config.LOSS_FN, seed=config.S
 
     model.to(config.DEVICE)
 
+    # evaluate nominal clean baseline reference (GAP=30, noise=0)
+    nom_ds = functions.generate_test_dataset(gap=config.GAP, noise_spikes=0, prob_0=config.PROB_0, prob_1=config.PROB_1, seed=seed)
+    nom_loader = functions.generate_test_dataloader(nom_ds)
+    _, clean_acc, clean_pats = functions.evaluate_patterns(model, nom_loader, loss_fn_class())
+
     results = {
         "losses": [],
         "accuracies": [],
+        "pattern_accuracies": {"00": [], "01": [], "10": [], "11": []},
     }
 
     # 2D matrices for 3D surface: shape (len(GAP_NOISE_COUNTS), len(GAP_NOISE_GAPS)) -> Y: noise, X: gap
@@ -918,6 +1006,7 @@ def robustness_test_gap_noise(model, loss_fn_class=config.LOSS_FN, seed=config.S
     for i, gap in enumerate(GAP_NOISE_GAPS):
         for j, noise in enumerate(GAP_NOISE_COUNTS):
             loss_hist, acc_hist = [], []
+            pats_hist = {"00": [], "01": [], "10": [], "11": []}
             for N in range(config.N_ROBUSTNESS_DATASET):
                 test_dataset = functions.generate_test_dataset(
                     gap=gap, noise_spikes=noise, seed=seed + N
@@ -928,17 +1017,26 @@ def robustness_test_gap_noise(model, loss_fn_class=config.LOSS_FN, seed=config.S
                 print(f"Gap-Noise test {test_idx}/{tot_test} - Gap: {gap} - Noise spikes: {noise}...")
 
                 loss_fn = loss_fn_class()
-                loss_test, acc_test = functions.evaluate(model, test_loader, loss_fn)
+                loss_test, acc_test, pat_accs = functions.evaluate_patterns(model, test_loader, loss_fn)
                 loss_hist.append(loss_test)
                 acc_hist.append(acc_test)
+                for k in ["00", "01", "10", "11"]:
+                    pats_hist[k].append(pat_accs[k])
 
             results["losses"].append(loss_hist)
             results["accuracies"].append(acc_hist)
+            for k in ["00", "01", "10", "11"]:
+                results["pattern_accuracies"][k].append(pats_hist[k])
 
             m_loss = sum(loss_hist) / len(loss_hist)
             s_loss = torch.tensor(loss_hist).std().item() if len(loss_hist) > 1 else 0.0
             m_acc = sum(acc_hist) / len(acc_hist)
             s_acc = torch.tensor(acc_hist).std().item() if len(acc_hist) > 1 else 0.0
+
+            m_00 = sum(pats_hist["00"]) / len(pats_hist["00"])
+            m_01 = sum(pats_hist["01"]) / len(pats_hist["01"])
+            m_10 = sum(pats_hist["10"]) / len(pats_hist["10"])
+            m_11 = sum(pats_hist["11"]) / len(pats_hist["11"])
 
             z_loss[j, i] = m_loss                                       # row j: noise (Y), col i: gap (X)
             z_acc[j, i] = m_acc
@@ -948,7 +1046,17 @@ def robustness_test_gap_noise(model, loss_fn_class=config.LOSS_FN, seed=config.S
                 "noise_spikes": noise,
                 "mean_test_loss": m_loss,
                 "std_test_loss": s_loss,
+                "clean_accuracy": clean_acc,
+                "clean_acc_00": clean_pats["00"],
+                "clean_acc_01": clean_pats["01"],
+                "clean_acc_10": clean_pats["10"],
+                "clean_acc_11": clean_pats["11"],
                 "mean_test_accuracy": m_acc,
+                "robust_accuracy": m_acc,
+                "robust_acc_00": m_00,
+                "robust_acc_01": m_01,
+                "robust_acc_10": m_10,
+                "robust_acc_11": m_11,
                 "std_test_accuracy": s_acc,
                 "min_test_accuracy": min(acc_hist),
                 "max_test_accuracy": max(acc_hist)
@@ -1266,7 +1374,7 @@ def save_robustness_results(
     # create directory
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     if output_dir is not None:
-        archive_dir = output_dir
+        archive_dir = os.path.join(output_dir, timestamp)                      # ensure timestamp subfolder
     else:
         archive_dir = os.path.join(
             "robustness",
