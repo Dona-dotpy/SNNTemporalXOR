@@ -1593,6 +1593,8 @@ if __name__ == "__main__":
     print(f"Total models to evaluate: {len(models_list)}")
     print(f"=======================================================\n")
 
+    session_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")          # unified timestamp across all models in suite
+
     for i, model_cfg in enumerate(models_list):
         model_name = model_cfg.get("name", f"model_{i}")
         print(f"\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
@@ -1600,7 +1602,6 @@ if __name__ == "__main__":
         print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n")
 
         model = load_model_from_config(model_cfg)                             # restore model checkpoint
-        session_timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         is_pareto = ("pareto" in study_name.lower()) or (len(models_list) > 1) or cfg.get("is_pareto", False)
         if is_pareto:
             session_dir = os.path.join("robustness", "results", study_name, model_name, session_timestamp)
